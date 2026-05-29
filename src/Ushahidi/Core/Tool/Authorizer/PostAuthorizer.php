@@ -117,6 +117,10 @@ class PostAuthorizer implements Authorizer
             return false;
         }
 
+        if ($this->isSubmitOnlyUser($user)) {
+            return $privilege === 'create' && $this->isRoleExplicitlyAllowedToCreate($entity, $user);
+        }
+
         // All users are allowed to create and search posts.
         if (in_array($privilege, ['create', 'search'])) {
             return true;
@@ -217,5 +221,29 @@ class PostAuthorizer implements Authorizer
         }
 
         return true;
+    }
+
+    protected function isRoleExplicitlyAllowedToCreate(Entity $entity, $user)
+    {
+        if (!$entity->form_id) {
+            return false;
+        }
+
+        $roles = $this->form_repo->getRolesThatCanCreatePosts($entity->form_id);
+
+        if ($roles['everyone_can_create'] > 0) {
+            return true;
+        }
+
+        return is_array($roles['roles']) && in_array($user->role, $roles['roles']);
+    }
+
+    protected function isSubmitOnlyUser($user)
+    {
+        return $this->acl->hasPermission($user, Permission::SUBMIT_POSTS)
+            && !$this->acl->hasPermission($user, Permission::MANAGE_POSTS)
+            && !$this->acl->hasPermission($user, Permission::EDIT_OWN_POSTS)
+            && !$this->acl->hasPermission($user, Permission::DELETE_POSTS)
+            && !$this->acl->hasPermission($user, Permission::DELETE_OWN_POSTS);
     }
 }

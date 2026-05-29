@@ -185,6 +185,10 @@ class PostPolicy
             return false;
         }
 
+        if ($this->isSubmitOnlyUser($authorizer, $user)) {
+            return $privilege === 'create' && $this->isRoleExplicitlyAllowedToCreate($entity, $user);
+        }
+
         // All users are allowed to create and search posts.
         if (in_array($privilege, ['create', 'search'])) {
             return true;
@@ -282,6 +286,32 @@ class PostPolicy
 
         return true;
     }
+
+    protected function isRoleExplicitlyAllowedToCreate(EntityContract $entity, $user)
+    {
+        if (!$entity->form_id) {
+            return false;
+        }
+
+        $form_repo = service('repository.form');
+        $roles = $form_repo->getRolesThatCanCreatePosts($entity->form_id);
+
+        if ($roles['everyone_can_create'] > 0) {
+            return true;
+        }
+
+        return is_array($roles['roles']) && in_array($user->role, $roles['roles']);
+    }
+
+    protected function isSubmitOnlyUser($authorizer, $user)
+    {
+        return $authorizer->acl->hasPermission($user, Permission::SUBMIT_POSTS)
+            && !$authorizer->acl->hasPermission($user, Permission::MANAGE_POSTS)
+            && !$authorizer->acl->hasPermission($user, Permission::EDIT_OWN_POSTS)
+            && !$authorizer->acl->hasPermission($user, Permission::DELETE_POSTS)
+            && !$authorizer->acl->hasPermission($user, Permission::DELETE_OWN_POSTS);
+    }
+
     protected function isPostPublishedToUser(EntityContract $entity, $user)
     {
         if ($entity->status === 'published' && $this->isUserOfRole($entity, $user)) {

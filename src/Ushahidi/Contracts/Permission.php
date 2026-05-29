@@ -22,6 +22,7 @@ interface Permission
         const MANAGE_SETS           = 'Manage Collections and Saved Searches';
         const MANAGE_SETTINGS       = 'Manage Settings';
         const MANAGE_USERS          = 'Manage Users';
+        const SUBMIT_POSTS          = 'Submit Posts';
         const EDIT_OWN_POSTS        = 'Edit their own posts';
         const DELETE_POSTS          = 'Delete Posts';
         const DELETE_OWN_POSTS      = 'Delete Their Own Posts';
