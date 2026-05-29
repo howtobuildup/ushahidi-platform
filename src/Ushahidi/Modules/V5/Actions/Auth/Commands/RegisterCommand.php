@@ -25,11 +25,8 @@ class RegisterCommand implements Command
 
     public static function fromRequest(RegisterRequest $request): self
     {
-        //To Do : make it config
-        $default_role = "user";
-
         $input['email'] = $request->input('email');
-        $input['role'] = $default_role;
+        $input['role'] = 'field_monitor';
         $input['password'] = (new PasswordHash())->hash($request->input('password'));
         $input['realname'] = $request->input('realname');
         $input['logins'] = UserEntity::DEFAULT_LOGINS;
