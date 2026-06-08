@@ -444,10 +444,106 @@ class Post extends BaseModel
                     }
                 }
             ],
+            'post_content.*.fields.*.value' => [
+                function ($attribute, $value, $fail) {
+                    $field_path = str_replace('.value', '', $attribute);
+                    $config = RequestFacade::input($field_path . '.config', []);
+                    $constraint = is_array($config) && isset($config['constraint'])
+                        ? trim($config['constraint'])
+                        : '';
+
+                    if (!$constraint) {
+                        return;
+                    }
+
+                    $field_value = RequestFacade::input($field_path . '.value.value');
+                    if (!$this->hasXlsFormValue($field_value)) {
+                        return;
+                    }
+
+                    if (!$this->passesXlsFormConstraint($constraint, $field_value)) {
+                        $message = isset($config['constraint_message']) && $config['constraint_message']
+                            ? $config['constraint_message']
+                            : 'Value does not match the validation rule';
+                        return $fail($message);
+                    }
+                }
+            ],
             'locale',
             'post_date'
         ];
     } //end getRules()
+
+    private function hasXlsFormValue($value)
+    {
+        if (is_array($value)) {
+            return count($value) > 0;
+        }
+
+        return !is_null($value) && $value !== '';
+    }
+
+    private function passesXlsFormConstraint($constraint, $value)
+    {
+        $constraint = trim($constraint);
+        $or_constraints = preg_split('/\s+or\s+/i', $constraint);
+        if (count($or_constraints) > 1) {
+            foreach ($or_constraints as $or_constraint) {
+                if ($this->passesXlsFormConstraint($or_constraint, $value)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        $and_constraints = preg_split('/\s+and\s+/i', $constraint);
+        if (count($and_constraints) > 1) {
+            foreach ($and_constraints as $and_constraint) {
+                if (!$this->passesXlsFormConstraint($and_constraint, $value)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        if (preg_match('/^string-length\s*\(\s*\.\s*\)\s*(<=|>=|<|>|=|!=)\s*(-?\d+(?:\.\d+)?)$/i', $constraint, $matches)) {
+            return $this->compareXlsFormValues(strlen((string) $value), $matches[2], $matches[1]);
+        }
+
+        if (preg_match('/^regex\s*\(\s*\.\s*,\s*[\'"](.+)[\'"]\s*\)$/i', $constraint, $matches)) {
+            return @preg_match('/' . str_replace('/', '\/', $matches[1]) . '/', (string) $value) === 1;
+        }
+
+        if (preg_match('/^\.\s*(<=|>=|<|>|=|!=)\s*[\'"]?([^\'"]+)[\'"]?$/i', $constraint, $matches)) {
+            return $this->compareXlsFormValues($value, trim($matches[2]), $matches[1]);
+        }
+
+        return true;
+    }
+
+    private function compareXlsFormValues($actual_value, $expected_value, $operator)
+    {
+        $use_number_comparison = is_numeric($actual_value) && is_numeric($expected_value);
+        $actual = $use_number_comparison ? (float) $actual_value : (string) $actual_value;
+        $expected = $use_number_comparison ? (float) $expected_value : (string) $expected_value;
+
+        switch ($operator) {
+            case '<':
+                return $actual < $expected;
+            case '<=':
+                return $actual <= $expected;
+            case '>':
+                return $actual > $expected;
+            case '>=':
+                return $actual >= $expected;
+            case '!=':
+                return $actual !== $expected;
+            case '=':
+                return $actual === $expected;
+            default:
+                return true;
+        }
+    }
 
     /**
      * Get the post's translation.
