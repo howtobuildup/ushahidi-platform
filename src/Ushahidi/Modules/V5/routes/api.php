@@ -9,6 +9,11 @@ $apiBase = '/v' . $apiVersion;
 $router->group([
     'prefix' => $apiBase,
 ], function () use ($router) {
+    $router->get('/dashboard/ewer', [
+        'middleware' => ['auth:api', 'scope:posts', 'expiration'],
+        'uses' => 'EwerDashboardController@show',
+    ]);
+
     // Forms
     $router->group(
         [
