@@ -47,6 +47,10 @@ class PostPermissions
      */
     public function canUserSeeAuthor(Entity $user, Entity $post, FormRepository $form_repo)
     {
+        if ($user->role === 'saferworld_partner' && $post->user_id === $user->id) {
+            return true;
+        }
+
         // If the user has manage post permission
         // @todo delegate to authorizer
         if ($this->acl->hasPermission($user, Permission::MANAGE_POSTS)) {
@@ -75,6 +79,10 @@ class PostPermissions
      */
     public function canUserSeeTime(Entity $user, Entity $post, FormRepository $form_repo)
     {
+        if ($user->role === 'saferworld_partner' && $post->user_id === $user->id) {
+            return true;
+        }
+
         // If the user has manage post permission
         // @todo delegate to authorizer
         if ($this->acl->hasPermission($user, Permission::MANAGE_POSTS)) {
@@ -103,6 +111,10 @@ class PostPermissions
      */
     public function canUserSeeLocation(Entity $user, Entity $post, FormRepository $form_repo)
     {
+        if ($user->role === 'saferworld_partner' && $post->user_id === $user->id) {
+            return true;
+        }
+
         // If the user has manage post permission
         // @todo delegate to authorizer
         if ($this->acl->hasPermission($user, Permission::MANAGE_POSTS)) {
@@ -141,6 +153,10 @@ class PostPermissions
      */
     public function canUserReadPrivateValues(Entity $user)
     {
+        if ($user->role === 'saferworld_partner') {
+            return true;
+        }
+
         // Delegate to post authorizer
         return $this->acl->hasPermission($user, Permission::MANAGE_POSTS);
     }

@@ -94,6 +94,15 @@ class PostAuthorizer implements Authorizer
             return true;
         }
 
+        if ($this->isSaferworldPartner($user)) {
+            if ($privilege === 'search') {
+                return true;
+            }
+
+            return in_array($privilege, ['read', 'read_full'], true)
+                && $this->isUserOwner($entity, $user);
+        }
+
         // We check if the user has access to a parent post. This doesn't
         // grant them access, but is used to deny access even if the child post
         // is public.
@@ -245,5 +254,10 @@ class PostAuthorizer implements Authorizer
             && !$this->acl->hasPermission($user, Permission::EDIT_OWN_POSTS)
             && !$this->acl->hasPermission($user, Permission::DELETE_POSTS)
             && !$this->acl->hasPermission($user, Permission::DELETE_OWN_POSTS);
+    }
+
+    protected function isSaferworldPartner($user)
+    {
+        return $user && $user->role === 'saferworld_partner';
     }
 }

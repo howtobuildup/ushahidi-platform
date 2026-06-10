@@ -162,6 +162,14 @@ class PostPolicy
             return true;
         }
 
+        if ($user && $user->role === 'saferworld_partner') {
+            if ($privilege === 'search') {
+                return true;
+            }
+
+            return $privilege === 'read' && $this->isUserOwner($entity, $user);
+        }
+
         // We check if the user has access to a parent post. This doesn't
         // grant them access, but is used to deny access even if the child post
         // is public.

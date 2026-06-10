@@ -16,7 +16,7 @@ abstract class AbstractPostQueryHandler extends V5QueryHandler
         if (!$user || !$user->id) {
             return false;
         }
-        if ($user->role === "admin") {
+        if (in_array($user->role, ['admin', 'saferworld_partner'], true)) {
             return true;
         }
         $permissions =

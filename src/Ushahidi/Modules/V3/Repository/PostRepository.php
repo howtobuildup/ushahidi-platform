@@ -815,6 +815,10 @@ class PostRepository extends OhanzeeRepository implements
         }
 
         $user = $this->getUser();
+        if ($user->id && $user->role === 'saferworld_partner') {
+            $query->where("$table.user_id", '=', $user->id);
+        }
+
         // If there's no logged in user, or the user isn't admin
         // restrict our search to make sure we still return SOME results
         // they are allowed to see

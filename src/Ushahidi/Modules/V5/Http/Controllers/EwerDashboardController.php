@@ -9,10 +9,12 @@ use Ushahidi\Modules\V5\Models\Survey;
 
 class EwerDashboardController extends V5Controller
 {
+    private $visiblePostIds;
+
     public function show(Request $request)
     {
         $user = Auth::user();
-        if (!$user || !in_array($user->role, ['admin', 'saferworld_staff'], true)) {
+        if (!$user || !in_array($user->role, ['admin', 'saferworld_staff', 'saferworld_partner'], true)) {
             return self::make403('You do not have permission to view dashboard analytics.');
         }
 
@@ -22,6 +24,16 @@ class EwerDashboardController extends V5Controller
         }
 
         $formId = (int) $survey->id;
+        $this->visiblePostIds = $user->role === 'saferworld_partner'
+            ? DB::table('posts')
+                ->where('form_id', $formId)
+                ->where('user_id', $user->id)
+                ->pluck('id')
+                ->map(function ($id) {
+                    return (int) $id;
+                })
+                ->all()
+            : null;
         $categories = $this->postValues($formId, ['Incidence type']);
         $districtValues = $this->postValues($formId, ['District where incidence occurred']);
         $responses = $this->postValues($formId, ['Has any response happened?']);
@@ -73,7 +85,9 @@ class EwerDashboardController extends V5Controller
                 'form_id' => $formId,
                 'reporting_period' => $this->reportingPeriod($formId),
                 'kpis' => [
-                    'total_reports' => DB::table('posts')->where('form_id', $formId)->count(),
+                    'total_reports' => $this->scopePosts(
+                        DB::table('posts')->where('form_id', $formId)
+                    )->count(),
                     'gbv' => $incidentMix['gbv'],
                     'conflicts' => $incidentMix['conflict'],
                     'social_violence' => $incidentMix['social'],
@@ -160,13 +174,14 @@ class EwerDashboardController extends V5Controller
 
     private function postValues($formId, array $labels)
     {
-        return DB::table('post_varchar')
+        $query = DB::table('post_varchar')
             ->join('posts', 'posts.id', '=', 'post_varchar.post_id')
             ->join('form_attributes', 'form_attributes.id', '=', 'post_varchar.form_attribute_id')
             ->where('posts.form_id', $formId)
             ->whereIn('form_attributes.label', $labels)
-            ->select(['post_varchar.post_id', 'post_varchar.value'])
-            ->get();
+            ->select(['post_varchar.post_id', 'post_varchar.value']);
+
+        return $this->scopePosts($query)->get();
     }
 
     private function singleValueByPost($values)
@@ -266,6 +281,7 @@ class EwerDashboardController extends V5Controller
             ->join('form_attributes', 'form_attributes.id', '=', 'post_varchar.form_attribute_id')
             ->where('posts.form_id', $formId)
             ->whereIn('form_attributes.label', $labels);
+        $this->scopePosts($query);
 
         if (!empty($postIds)) {
             $query->whereIn('posts.id', $postIds);
@@ -382,11 +398,11 @@ class EwerDashboardController extends V5Controller
 
     private function timeline($formId, array $postCategories)
     {
-        $posts = DB::table('posts')
+        $query = DB::table('posts')
             ->where('form_id', $formId)
             ->select(['id', 'post_date'])
-            ->orderBy('post_date')
-            ->get();
+            ->orderBy('post_date');
+        $posts = $this->scopePosts($query)->get();
         $months = [];
 
         foreach ($posts as $post) {
@@ -417,10 +433,10 @@ class EwerDashboardController extends V5Controller
 
     private function reportingPeriod($formId)
     {
-        $dates = DB::table('posts')
+        $query = DB::table('posts')
             ->where('form_id', $formId)
-            ->selectRaw('MIN(post_date) as first_date, MAX(post_date) as last_date')
-            ->first();
+            ->selectRaw('MIN(post_date) as first_date, MAX(post_date) as last_date');
+        $dates = $this->scopePosts($query)->first();
         return [
             'start' => $dates && $dates->first_date ? date('Y-m-d', strtotime($dates->first_date)) : null,
             'end' => $dates && $dates->last_date ? date('Y-m-d', strtotime($dates->last_date)) : null,
@@ -430,5 +446,14 @@ class EwerDashboardController extends V5Controller
     private function percentage($value, $total)
     {
         return $total > 0 ? (int) round(($value / $total) * 100) : 0;
+    }
+
+    private function scopePosts($query)
+    {
+        if ($this->visiblePostIds !== null) {
+            $query->whereIn('posts.id', $this->visiblePostIds ?: [0]);
+        }
+
+        return $query;
     }
 }
