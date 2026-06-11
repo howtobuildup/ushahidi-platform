@@ -134,13 +134,34 @@ class ImportXlsFormCommand extends Command
             }
             $label = $this->englishValue($row, 'label') ?: $name;
             $somali = $this->somaliValue($row, 'label') ?: $label;
-            $choices[$listName][] = [
+            $choice = [
                 'name' => $name,
                 'label' => $label,
                 'translations' => [
                     'so' => ['label' => $somali],
                 ],
             ];
+
+            foreach ($row as $key => $value) {
+                if (
+                    in_array($key, [
+                        'list_name',
+                        'name',
+                        'label',
+                        'label::English (en)',
+                        'label::Somali (so)',
+                    ], true)
+                ) {
+                    continue;
+                }
+
+                $value = trim((string) $value);
+                if ($value !== '') {
+                    $choice[$key] = $value;
+                }
+            }
+
+            $choices[$listName][] = $choice;
         }
         return $choices;
     }
