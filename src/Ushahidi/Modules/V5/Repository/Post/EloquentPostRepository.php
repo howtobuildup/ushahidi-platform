@@ -32,7 +32,7 @@ class EloquentPostRepository implements PostRepository
         if (!$user || !$user->id) {
             $query->where('posts.status', '=', 'published');
         } elseif ($user->id) {
-            if ($user->role === 'saferworld_partner') {
+            if (in_array($user->role, ['field_monitor', 'saferworld_partner'], true)) {
                 return $query->where('posts.user_id', '=', $user->id);
             }
 

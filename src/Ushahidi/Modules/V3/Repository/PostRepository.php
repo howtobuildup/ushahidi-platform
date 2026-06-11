@@ -815,7 +815,7 @@ class PostRepository extends OhanzeeRepository implements
         }
 
         $user = $this->getUser();
-        if ($user->id && $user->role === 'saferworld_partner') {
+        if ($user->id && in_array($user->role, ['field_monitor', 'saferworld_partner'], true)) {
             $query->where("$table.user_id", '=', $user->id);
         }
 

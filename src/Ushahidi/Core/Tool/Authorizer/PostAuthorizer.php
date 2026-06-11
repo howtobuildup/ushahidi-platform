@@ -103,6 +103,20 @@ class PostAuthorizer implements Authorizer
                 && $this->isUserOwner($entity, $user);
         }
 
+        if ($this->isFieldMonitor($user)) {
+            if ($privilege === 'search') {
+                return true;
+            }
+
+            if ($privilege === 'create') {
+                return $this->isUserOwner($entity, $user)
+                    && $this->isRoleExplicitlyAllowedToCreate($entity, $user);
+            }
+
+            return in_array($privilege, ['read', 'read_full'], true)
+                && $this->isUserOwner($entity, $user);
+        }
+
         // We check if the user has access to a parent post. This doesn't
         // grant them access, but is used to deny access even if the child post
         // is public.
@@ -259,5 +273,10 @@ class PostAuthorizer implements Authorizer
     protected function isSaferworldPartner($user)
     {
         return $user && $user->role === 'saferworld_partner';
+    }
+
+    protected function isFieldMonitor($user)
+    {
+        return $user && $user->role === 'field_monitor';
     }
 }
