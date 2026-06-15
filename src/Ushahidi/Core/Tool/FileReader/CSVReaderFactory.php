@@ -18,8 +18,17 @@ class CSVReaderFactory implements ReaderFactory
 {
     public function createReader($file)
     {
-        return $file instanceof \SplFileObject
+        $reader = $file instanceof \SplFileObject
             ? Reader::createFromFileObject($file)
             : Reader::createFromPath($file);
+
+        $delimiterCounts = $reader->fetchDelimitersOccurrence([',', ';', "\t"], 3);
+        $delimiter = array_search(max($delimiterCounts), $delimiterCounts, true);
+
+        if ($delimiter !== false && $delimiterCounts[$delimiter] > 0) {
+            $reader->setDelimiter($delimiter);
+        }
+
+        return $reader;
     }
 }

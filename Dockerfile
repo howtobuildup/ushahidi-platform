@@ -25,6 +25,12 @@ COPY composer.json ./
 COPY composer.lock ./
 RUN composer self-update --2
 RUN composer install --no-autoloader --no-scripts
+COPY docker/csv-upload.ini /etc/php/${PHP_MAJOR_VERSION}/fpm/conf.d/zz-csv-upload.ini
+COPY docker/csv-upload.ini /etc/php/${PHP_MAJOR_VERSION}/cli/conf.d/zz-csv-upload.ini
+RUN sed -i \
+    -e 's/default .Env.PHP_UPLOAD_MAX_FILESIZE "4m"/default .Env.PHP_UPLOAD_MAX_FILESIZE "60m"/' \
+    -e 's/client_max_body_size 10m/client_max_body_size {{ default .Env.PHP_UPLOAD_MAX_FILESIZE "60m" }}/' \
+    /tmpl/etc/nginx/sites-available/default
 
 COPY . .
 COPY docker/utils.sh /utils.sh

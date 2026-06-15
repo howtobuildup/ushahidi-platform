@@ -71,9 +71,10 @@ class Import extends AbstractListener
                 $id = $this->repo->create($entity);
             } catch (\Exception $e) {
                 $errors++;
+                continue;
             }
-            service('repository.set')->addPostToSet($collection_id, $id);
 
+            service('repository.set')->addPostToSet($collection_id, $id);
             $processed++;
         }
 

@@ -590,8 +590,9 @@ class AppConfig extends ContainerConfig
             }),
         ];
         $di->setters[V3\Validator\CSV\Create::class] = [
-            // @todo load from config
-            'setMaxBytes' => '2048000',
+            'setMaxBytes' => $di->lazy(function () {
+                return env('CSV_MAX_UPLOAD_BYTES', 52428800);
+            }),
         ];
 
 

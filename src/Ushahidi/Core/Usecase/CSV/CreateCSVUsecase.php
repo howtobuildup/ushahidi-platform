@@ -15,6 +15,7 @@ use SplTempFileObject;
 use Ushahidi\Contracts\Entity;
 use Ushahidi\Core\Tool\UploadData;
 use Ushahidi\Contracts\ReaderFactory;
+use Ushahidi\Core\Tool\FileReader\CSVHeaders;
 use Ushahidi\Core\Usecase\Media\CreateMedia;
 
 class CreateCSVUsecase extends CreateMedia
@@ -61,7 +62,7 @@ class CreateCSVUsecase extends CreateMedia
 
         // Create a reader and fetch CSV columns
         $reader = $this->reader_factory->createReader($file);
-        $columns = $reader->fetchOne();
+        $columns = CSVHeaders::makeUnique($reader->fetchOne());
 
         $payload = [
             'columns'    => $columns,

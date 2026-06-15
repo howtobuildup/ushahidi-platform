@@ -43,9 +43,10 @@ class CSV implements FileReader
         $reader = $this->reader_factory->createReader($file);
 
         // Filter out empty rows
-        $nbColumns = count($reader->fetchOne());
-        $reader->addFilter(function ($row) use ($nbColumns) {
-            return count($row) == $nbColumns;
+        $headers = CSVHeaders::makeUnique($reader->fetchOne());
+        $nbColumns = count($headers);
+        $reader->addFilter(function ($row, $index) use ($nbColumns) {
+            return $index !== 0 && count($row) == $nbColumns;
         });
 
         if ($this->offset) {
@@ -55,7 +56,7 @@ class CSV implements FileReader
             $reader->setLimit($this->limit);
         }
         try {
-            return new \ArrayIterator($reader->fetchAssoc());
+            return new \ArrayIterator($reader->fetchAssoc($headers));
         } catch (\InvalidArgumentException $invalidArgumentException) {
             if ($invalidArgumentException->getMessage() === 'The array must contain unique values') {
                 throw new ValidatorException(
