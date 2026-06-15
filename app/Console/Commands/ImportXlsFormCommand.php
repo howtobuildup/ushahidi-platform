@@ -211,7 +211,7 @@ class ImportXlsFormCommand extends Command
                 $groups,
                 [trim((string) ($row['relevant'] ?? ''))]
             ));
-            $config = [];
+            $config = ['xlsform_name' => $name];
             if (!empty($relevant)) {
                 $config['relevant'] = implode(' and ', array_map(function ($expression) {
                     return '(' . $expression . ')';
