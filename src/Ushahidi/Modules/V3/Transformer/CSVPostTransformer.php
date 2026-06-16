@@ -93,18 +93,7 @@ class CSVPostTransformer implements MappingTransformer
         // Transform values according to specs in column names
         $this->transformValues($record);
 
-        $columns = $this->map;
-
-        // Don't import columns marked as NULL
-        foreach ($columns as $index => $column) {
-            if ($column === null) {
-                unset($columns[$index]);
-                unset($record[$index]);
-            }
-        }
-
-        // Remap record columns
-        $record = array_combine($columns, $record);
+        $record = $this->remapRecordColumns($record);
 
         // Remove empty values
         foreach ($record as $key => $val) {
@@ -165,6 +154,21 @@ class CSVPostTransformer implements MappingTransformer
             $expectedColumnCount,
             null
         );
+    }
+
+    private function remapRecordColumns(array $record): array
+    {
+        $remappedRecord = [];
+
+        foreach ($this->map as $index => $column) {
+            if ($column === null || !array_key_exists($index, $record)) {
+                continue;
+            }
+
+            $remappedRecord[$column] = $record[$index];
+        }
+
+        return $remappedRecord;
     }
 
     /**
