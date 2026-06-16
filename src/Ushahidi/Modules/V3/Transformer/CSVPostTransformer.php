@@ -46,6 +46,10 @@ class CSVPostTransformer implements MappingTransformer
     public function transformValues(&$record)
     {
         foreach ($this->columnNames as $index => $columnName) {
+            if (!array_key_exists($index, $record)) {
+                continue;
+            }
+
             $transformMatch = [];
             if (preg_match('/^.+(?=->)->\{(.+)(?=\})\}$/', $columnName, $transformMatch)) {
                 $record[$index] = $this->transformValue($transformMatch[1], $record[$index]);
@@ -79,10 +83,11 @@ class CSVPostTransformer implements MappingTransformer
     public function interact(array $record)
     {
         $record = array_values($record);
+        $record = $this->normalizeRecordLength($record);
 
         // Trim values
         foreach ($record as $key => $val) {
-            $record[$key] = trim($val);
+            $record[$key] = trim((string) $val);
         }
 
         // Transform values according to specs in column names
@@ -148,6 +153,17 @@ class CSVPostTransformer implements MappingTransformer
             $post_fields,
             $form_values,
             $this->fixedValues
+        );
+    }
+
+    private function normalizeRecordLength(array $record): array
+    {
+        $expectedColumnCount = count($this->map ?: $this->columnNames ?: $record);
+
+        return array_pad(
+            array_slice($record, 0, $expectedColumnCount),
+            $expectedColumnCount,
+            null
         );
     }
 
