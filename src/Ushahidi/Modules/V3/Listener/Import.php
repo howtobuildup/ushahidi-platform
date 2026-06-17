@@ -55,19 +55,19 @@ class Import extends AbstractListener
 
         $created_entities = [];
         foreach ($records as $index => $record) {
-            // ... transform record
-            $entity = $this->transform($record);
-
-            // Ensure that empty status or under review is correctly mapped to draft
-            if (is_null($entity->status) || strcasecmp($entity->status, 'under review') == 0) {
-                $entity->setState(['status' => 'draft']);
-            }
-
-            if (!Feature::isEnabled('csv-speedup')) {
-                $importUsecase->verify($entity);
-            }
-            // ... persist the new entity
             try {
+                // ... transform record
+                $entity = $this->transform($record);
+
+                // Ensure that empty status or under review is correctly mapped to draft
+                if (is_null($entity->status) || strcasecmp($entity->status, 'under review') == 0) {
+                    $entity->setState(['status' => 'draft']);
+                }
+
+                if (!Feature::isEnabled('csv-speedup')) {
+                    $importUsecase->verify($entity);
+                }
+                // ... persist the new entity
                 $id = $this->repo->create($entity);
             } catch (\Exception $e) {
                 $errors++;
@@ -78,7 +78,7 @@ class Import extends AbstractListener
             $processed++;
         }
 
-        $new_status = 'SUCCESS';
+        $new_status = $processed > 0 ? 'SUCCESS' : 'FAILED';
         $csv->setState([
             'status' => $new_status,
             'collection_id' => $collection_id,

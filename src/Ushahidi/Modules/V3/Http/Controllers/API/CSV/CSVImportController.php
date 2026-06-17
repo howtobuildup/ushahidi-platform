@@ -27,6 +27,7 @@ class CSVImportController extends RestController
          * (primarily added because of OS9 line endings which do not work by default )
          */
         ini_set('auto_detect_line_endings', 1);
+        set_time_limit(600);
 
         // Get payload from CSV repo
         $csv = service('repository.csv')->get($id);
@@ -45,9 +46,9 @@ class CSVImportController extends RestController
         $records = $reader->process($file);
 
         // Set map and fixed values for transformer
-        $transformer->setColumnNames($csv->columns);
-        $transformer->setMap($csv->maps_to);
-        $transformer->setFixedValues($csv->fixed);
+        $transformer->setColumnNames($csv->columns ?: []);
+        $transformer->setMap($csv->maps_to ?: []);
+        $transformer->setFixedValues($csv->fixed ?: []);
 
         $this->usecase = $this->usecaseFactory
             ->get($this->getResource(), 'import')
