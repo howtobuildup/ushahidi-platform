@@ -30,7 +30,6 @@ COPY docker/csv-upload.ini /etc/php/${PHP_MAJOR_VERSION}/cli/conf.d/zz-csv-uploa
 RUN sed -i \
     -e 's/default .Env.PHP_UPLOAD_MAX_FILESIZE "4m"/default .Env.PHP_UPLOAD_MAX_FILESIZE "60m"/' \
     -e 's/client_max_body_size 10m/client_max_body_size {{ default .Env.PHP_UPLOAD_MAX_FILESIZE "60m" }}/' \
-    -e 's/include fastcgi_params;/include fastcgi_params;\\n      fastcgi_read_timeout 600;\\n      fastcgi_send_timeout 600;/' \
     /tmpl/etc/nginx/sites-available/default
 
 COPY . .
