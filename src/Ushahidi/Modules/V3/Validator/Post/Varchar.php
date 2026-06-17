@@ -13,12 +13,14 @@ namespace Ushahidi\Modules\V3\Validator\Post;
 
 class Varchar extends ValueValidator
 {
+    const MAX_LENGTH = 8192;
+
     protected function validate($value)
     {
         if (!is_scalar($value)) {
             return 'scalar';
         }
-        if (!\Kohana\Validation\Valid::max_length($value, 255)) {
+        if (!\Kohana\Validation\Valid::max_length($value, self::MAX_LENGTH)) {
             return 'max_length';
         }
     }
