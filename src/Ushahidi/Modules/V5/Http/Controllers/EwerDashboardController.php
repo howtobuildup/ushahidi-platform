@@ -10,6 +10,8 @@ use Ushahidi\Modules\V5\Models\Survey;
 class EwerDashboardController extends V5Controller
 {
     private $visiblePostIds;
+    private $dateFrom;
+    private $dateTo;
 
     public function show(Request $request)
     {
@@ -18,28 +20,32 @@ class EwerDashboardController extends V5Controller
             return self::make403('You do not have permission to view dashboard analytics.');
         }
 
-        $survey = Survey::where('name', 'NAGAASHO EWER')->orderByDesc('id')->first();
+        $survey = $this->dashboardSurvey($request);
         if (!$survey) {
-            return self::make404('The NAGAASHO EWER survey has not been imported.');
+            return self::make404('A dashboard-compatible survey has not been imported.');
         }
 
         $formId = (int) $survey->id;
-        $this->visiblePostIds = $user->role === 'saferworld_partner'
-            ? DB::table('posts')
-                ->where('form_id', $formId)
-                ->where('user_id', $user->id)
-                ->pluck('id')
-                ->map(function ($id) {
-                    return (int) $id;
-                })
-                ->all()
-            : null;
-        $categories = $this->postValues($formId, ['Incidence type']);
-        $districtValues = $this->postValues($formId, ['District where incidence occurred']);
-        $responses = $this->postValues($formId, ['Has any response happened?']);
-        $escalations = $this->postValues($formId, ['Are there escalation indicators']);
+        $this->dateFrom = $request->query('date_from');
+        $this->dateTo = $request->query('date_to');
+        $this->visiblePostIds = $this->basePostIds($formId, $user);
 
+        $categories = $this->postValues($formId, $this->fields('incident_type'));
         $postCategories = $this->singleValueByPost($categories);
+        $incidentFilter = $this->normalizeCategoryFilter($request->query('incident_type'));
+        if ($incidentFilter) {
+            $this->visiblePostIds = array_values(array_intersect(
+                $this->visiblePostIds,
+                $this->postsInCategory($postCategories, $incidentFilter)
+            ));
+            $categories = $this->postValues($formId, $this->fields('incident_type'));
+            $postCategories = $this->singleValueByPost($categories);
+        }
+
+        $districtValues = $this->postValues($formId, $this->fields('district'));
+        $responses = $this->postValues($formId, $this->fields('response_happened'));
+        $escalations = $this->postValues($formId, $this->fields('escalation_indicators'));
+
         $postDistricts = $this->singleValueByPost($districtValues);
         $incidentMix = $this->incidentMix($postCategories);
         $districts = $this->counts($postDistricts);
@@ -103,16 +109,12 @@ class EwerDashboardController extends V5Controller
                 'district_types' => array_values($districtTypes),
                 'conflict_types' => $this->namedCounts($this->countsForLabels(
                     $formId,
-                    ['What is the cause of the conflict/incidence?'],
+                    $this->fields('conflict_type'),
                     $conflictPostIds
                 )),
                 'conflict_drivers' => $this->namedCounts($this->countsForLabels(
                     $formId,
-                    [
-                        'If Community/Clan conflict related conflict what are the possible causes?',
-                        'What are the possible cause?',
-                        'What are the possible causes?',
-                    ],
+                    $this->fields('conflict_drivers'),
                     $conflictPostIds
                 )),
                 'conflict_response' => $this->responseByDistrict(
@@ -126,35 +128,32 @@ class EwerDashboardController extends V5Controller
                 ],
                 'gbv_nature' => $this->namedCounts($this->countsForLabels(
                     $formId,
-                    ['If, Gender Based violence what is the nature of Incidence?'],
+                    $this->fields('gbv_nature'),
                     $gbvPostIds
                 )),
                 'gbv_districts' => $this->countsByDistrict($postDistricts, $gbvPostIds),
                 'survivor_ages' => $this->namedCounts($this->countsForLabels(
                     $formId,
-                    ['How old is the victim/survivor/s?', 'How old is the Victim/Survivor/s'],
+                    $this->fields('survivor_age'),
                     $gbvPostIds
                 )),
                 'gender_profiles' => [
                     'survivors' => $this->genderPercentage(
                         $formId,
-                        ['What is the gender of the victim/survivor/s', 'What is the gender of the Victim/Survivor/s?'],
+                        $this->fields('survivor_gender'),
                         $gbvPostIds,
                         'female'
                     ),
                     'perpetrators' => $this->genderPercentage(
                         $formId,
-                        [
-                            'What is the gender of the perpetrator/s of the violent crime?',
-                            'What is the gender of the Perpetrator/s?',
-                        ],
+                        $this->fields('perpetrator_gender'),
                         $gbvPostIds,
                         'male'
                     ),
                 ],
                 'social_violence' => $this->namedCounts($this->countsForLabels(
                     $formId,
-                    ['If Social  violence which one are you reporting?']
+                    $this->fields('social_type')
                 )),
                 'response_coverage' => $this->responseCoverage(
                     $postCategories,
@@ -164,7 +163,7 @@ class EwerDashboardController extends V5Controller
                 'timeline' => $this->timeline($formId, $postCategories),
                 'responding_actors' => $this->namedCounts($this->countsForLabels(
                     $formId,
-                    ['Who are the actors responding to the situation on the ground?'],
+                    $this->fields('responding_actors'),
                     [],
                     true
                 )),
@@ -177,9 +176,11 @@ class EwerDashboardController extends V5Controller
         $query = DB::table('post_varchar')
             ->join('posts', 'posts.id', '=', 'post_varchar.post_id')
             ->join('form_attributes', 'form_attributes.id', '=', 'post_varchar.form_attribute_id')
+            ->join('form_stages', 'form_stages.id', '=', 'form_attributes.form_stage_id')
             ->where('posts.form_id', $formId)
-            ->whereIn('form_attributes.label', $labels)
+            ->where('form_stages.form_id', $formId)
             ->select(['post_varchar.post_id', 'post_varchar.value']);
+        $this->whereFieldMatches($query, $labels);
 
         return $this->scopePosts($query)->get();
     }
@@ -197,11 +198,11 @@ class EwerDashboardController extends V5Controller
 
     private function category($value)
     {
-        $value = strtolower(trim((string) $value));
+        $value = $this->normalize($value);
         if (strpos($value, 'gender') !== false || $value === 'gbv') {
             return 'gbv';
         }
-        if (strpos($value, 'conflict') !== false) {
+        if (strpos($value, 'conflict') !== false || strpos($value, 'clan') !== false) {
             return 'conflict';
         }
         if (strpos($value, 'warning') !== false || strpos($value, 'environment') !== false) {
@@ -280,7 +281,9 @@ class EwerDashboardController extends V5Controller
             ->join('posts', 'posts.id', '=', 'post_varchar.post_id')
             ->join('form_attributes', 'form_attributes.id', '=', 'post_varchar.form_attribute_id')
             ->where('posts.form_id', $formId)
-            ->whereIn('form_attributes.label', $labels);
+            ->join('form_stages', 'form_stages.id', '=', 'form_attributes.form_stage_id')
+            ->where('form_stages.form_id', $formId);
+        $this->whereFieldMatches($query, $labels);
         $this->scopePosts($query);
 
         if (!empty($postIds)) {
@@ -455,5 +458,149 @@ class EwerDashboardController extends V5Controller
         }
 
         return $query;
+    }
+
+    private function dashboardSurvey(Request $request)
+    {
+        $requestedFormId = (int) $request->query('form_id', 0);
+        if ($requestedFormId > 0) {
+            return Survey::find($requestedFormId);
+        }
+
+        $formId = DB::table('forms')
+            ->join('posts', 'posts.form_id', '=', 'forms.id')
+            ->join('form_stages', 'form_stages.form_id', '=', 'forms.id')
+            ->join('form_attributes', 'form_attributes.form_stage_id', '=', 'form_stages.id')
+            ->where(function ($query) {
+                $this->whereFieldMatches($query, $this->fields('incident_type'));
+            })
+            ->groupBy('forms.id')
+            ->orderByRaw('MAX(posts.created) DESC')
+            ->value('forms.id');
+
+        if ($formId) {
+            return Survey::find($formId);
+        }
+
+        return Survey::where('name', 'NAGAASHO EWER')->orderByDesc('id')->first()
+            ?: Survey::orderByDesc('id')->first();
+    }
+
+    private function basePostIds($formId, $user)
+    {
+        $query = DB::table('posts')->where('form_id', $formId);
+
+        if ($user->role === 'saferworld_partner') {
+            $query->where('user_id', $user->id);
+        }
+
+        $this->applyDateFilters($query);
+
+        return $query->pluck('id')->map(function ($id) {
+            return (int) $id;
+        })->all();
+    }
+
+    private function applyDateFilters($query)
+    {
+        $dateFrom = $this->dateFrom ? strtotime($this->dateFrom) : false;
+        $dateTo = $this->dateTo ? strtotime($this->dateTo) : false;
+
+        if ($dateFrom) {
+            $query->where('posts.post_date', '>=', date('Y-m-d 00:00:00', $dateFrom));
+        }
+
+        if ($dateTo) {
+            $query->where('posts.post_date', '<=', date('Y-m-d 23:59:59', $dateTo));
+        }
+    }
+
+    private function whereFieldMatches($query, array $identifiers)
+    {
+        $query->where(function ($fieldQuery) use ($identifiers) {
+            foreach ($identifiers as $identifier) {
+                $fieldQuery
+                    ->orWhere('form_attributes.key', $identifier)
+                    ->orWhere('form_attributes.label', $identifier)
+                    ->orWhere('form_attributes.config', 'like', '%' . $identifier . '%');
+            }
+        });
+    }
+
+    private function normalizeCategoryFilter($value)
+    {
+        $value = $this->normalize($value);
+        return in_array($value, ['conflict', 'gbv', 'social', 'warning'], true) ? $value : null;
+    }
+
+    private function normalize($value)
+    {
+        return trim(preg_replace('/[^a-z0-9]+/', '_', strtolower((string) $value)), '_');
+    }
+
+    private function fields($field)
+    {
+        $fields = [
+            'incident_type' => [
+                'Incidence_type',
+                'Incidence type',
+            ],
+            'district' => [
+                '_2a_City_where_incidence_occurred',
+                '_2b_City_where_incidence_occurred',
+                'District where incidence occurred',
+                'City where incidence occurred',
+                'State where incidence occurred',
+                'Region where incidence occurred',
+            ],
+            'response_happened' => [
+                '_10_Has_any_response_happened',
+                'Has any response happened?',
+                'Has the victim/survivor been reached and supported/referred?',
+            ],
+            'escalation_indicators' => [
+                '_12_Are_there_escalation_indic',
+                'Are there escalation indicators',
+            ],
+            'conflict_type' => [
+                'What_is_the_cause_of_the_confl',
+                'What is the cause of the conflict/incidence?',
+            ],
+            'conflict_drivers' => [
+                '_15_If_Community_Clan_conflict',
+                'If Community/Clan conflict related conflict what are the possible causes?',
+                'What are the possible cause?',
+                'What are the possible causes?',
+            ],
+            'gbv_nature' => [
+                'If_Gender_Based_violence_what',
+                'If, Gender Based violence what is the nature of Incidence?',
+            ],
+            'survivor_age' => [
+                '_43_How_old_is_the_victim_survivor_s',
+                'How old is the victim/survivor/s?',
+                'How old is the Victim/Survivor/s',
+            ],
+            'survivor_gender' => [
+                '_44_What_is_the_gender_of_the_victim_survivor_s',
+                'What is the gender of the victim/survivor/s',
+                'What is the gender of the Victim/Survivor/s?',
+            ],
+            'perpetrator_gender' => [
+                'What_is_the_gender_of_the_perpetrator',
+                'What is the gender of the perpetrator/s of the violent crime?',
+                'What is the gender of the Perpetrator/s?',
+            ],
+            'social_type' => [
+                'If_Social_violence_which_one_are_you_reporting',
+                'If Social  violence which one are you reporting?',
+            ],
+            'responding_actors' => [
+                '_10a_Who_are_the_actors_respon',
+                'Who are the actors responding to the situation on the ground?',
+            ],
+        ];
+
+        return $fields[$field] ?? [$field];
     }
 }
