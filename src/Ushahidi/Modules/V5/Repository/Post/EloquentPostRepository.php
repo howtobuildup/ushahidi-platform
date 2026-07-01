@@ -14,6 +14,7 @@ use Ushahidi\Core\Tool\BoundingBox;
 use Illuminate\Support\Facades\Auth;
 use Ushahidi\Modules\V5\Models\RolePermission;
 use Ushahidi\Contracts\Sources;
+use App\Support\PartnerPostVisibility;
 
 class EloquentPostRepository implements PostRepository
 {
@@ -32,8 +33,11 @@ class EloquentPostRepository implements PostRepository
         if (!$user || !$user->id) {
             $query->where('posts.status', '=', 'published');
         } elseif ($user->id) {
-            if (in_array($user->role, ['field_monitor', 'saferworld_partner'], true)) {
+            if ($user->role === 'field_monitor') {
                 return $query->where('posts.user_id', '=', $user->id);
+            }
+            if ($user->role === 'saferworld_partner') {
+                return PartnerPostVisibility::apply($query, $user);
             }
 
             if (!$this->userHasManagePostPermissions($user)) {

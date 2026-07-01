@@ -181,6 +181,7 @@ $router->group([
         ],
         function () use ($router) {
             $router->get('/me', 'UserController@showMe');
+            $router->get('/field-monitors', 'UserController@fieldMonitors');
             $router->put('/me', 'UserController@updateMe');
         }
     );

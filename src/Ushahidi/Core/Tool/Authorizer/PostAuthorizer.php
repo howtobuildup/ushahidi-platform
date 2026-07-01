@@ -11,6 +11,8 @@
 
 namespace Ushahidi\Core\Tool\Authorizer;
 
+use App\Support\PartnerPostVisibility;
+
 use Ushahidi\Contracts\Entity;
 use Ushahidi\Contracts\Authorizer;
 use Ushahidi\Contracts\Permission;
@@ -100,7 +102,7 @@ class PostAuthorizer implements Authorizer
             }
 
             return in_array($privilege, ['read', 'read_full'], true)
-                && $this->isUserOwner($entity, $user);
+                && PartnerPostVisibility::canViewPost($user, (int) $entity->getId());
         }
 
         if ($this->isFieldMonitor($user)) {

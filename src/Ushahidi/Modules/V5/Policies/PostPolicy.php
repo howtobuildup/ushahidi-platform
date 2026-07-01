@@ -2,6 +2,8 @@
 
 namespace Ushahidi\Modules\V5\Policies;
 
+use App\Support\PartnerPostVisibility;
+
 use Ushahidi\Modules\V5\Models\Post\Post;
 use Ushahidi\Authzn\GenericUser as User;
 use Ushahidi\Core\Entity;
@@ -167,7 +169,8 @@ class PostPolicy
                 return true;
             }
 
-            return $privilege === 'read' && $this->isUserOwner($entity, $user);
+            return $privilege === 'read'
+                && PartnerPostVisibility::canViewPost($user, (int) $entity->id);
         }
 
         // We check if the user has access to a parent post. This doesn't

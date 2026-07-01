@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Ushahidi\Modules\V5\Models\Survey;
+use App\Support\PartnerPostVisibility;
 
 class EwerDashboardController extends V5Controller
 {
@@ -85,6 +86,9 @@ class EwerDashboardController extends V5Controller
         $conflictPostIds = $this->postsInCategory($postCategories, 'conflict');
         $gbvPostIds = $this->postsInCategory($postCategories, 'gbv');
         $warningPostIds = $this->postsInCategory($postCategories, 'warning');
+        $postConflictTypes = $this->singleValueByPost(
+            $this->postValues($formId, $this->fields('conflict_type'))
+        );
 
         return response()->json([
             'result' => [
@@ -117,8 +121,8 @@ class EwerDashboardController extends V5Controller
                     $this->fields('conflict_drivers'),
                     $conflictPostIds
                 )),
-                'conflict_response' => $this->responseByDistrict(
-                    $postDistricts,
+                'conflict_response' => $this->responseByValue(
+                    $postConflictTypes,
                     $conflictPostIds,
                     $responsePostIds
                 ),
@@ -362,6 +366,39 @@ class EwerDashboardController extends V5Controller
         return $result;
     }
 
+    private function responseByValue(array $valuesByPost, array $postIds, array $responsePostIds)
+    {
+        $allowed = array_fill_keys($postIds, true);
+        $responded = array_fill_keys($responsePostIds, true);
+        $groups = [];
+
+        foreach ($valuesByPost as $postId => $value) {
+            if (!isset($allowed[$postId]) || trim((string) $value) === '') {
+                continue;
+            }
+
+            if (!isset($groups[$value])) {
+                $groups[$value] = ['total' => 0, 'responded' => 0];
+            }
+            $groups[$value]['total']++;
+            if (isset($responded[$postId])) {
+                $groups[$value]['responded']++;
+            }
+        }
+
+        $result = [];
+        foreach ($groups as $name => $counts) {
+            $result[] = [
+                'name' => $name,
+                'value' => $this->percentage($counts['responded'], $counts['total']),
+            ];
+        }
+        usort($result, function ($left, $right) {
+            return $right['value'] <=> $left['value'];
+        });
+        return $result;
+    }
+
     private function responseCoverage(array $postCategories, $responses)
     {
         $responded = array_fill_keys($this->matchingPostIds($responses, ['yes']), true);
@@ -381,7 +418,11 @@ class EwerDashboardController extends V5Controller
 
         $result = [];
         foreach ($totals as $category => $total) {
-            $result[$category] = $this->percentage($responseTotals[$category], $total);
+            $result[$category] = [
+                'percentage' => $this->percentage($responseTotals[$category], $total),
+                'count' => $responseTotals[$category],
+                'total' => $total,
+            ];
         }
         return $result;
     }
@@ -491,7 +532,7 @@ class EwerDashboardController extends V5Controller
         $query = DB::table('posts')->where('form_id', $formId);
 
         if ($user->role === 'saferworld_partner') {
-            $query->where('user_id', $user->id);
+            PartnerPostVisibility::apply($query, $user);
         }
 
         $this->applyDateFilters($query);

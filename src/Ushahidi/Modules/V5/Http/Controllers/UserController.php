@@ -16,10 +16,23 @@ use Ushahidi\Core\Entity\User as UserEntity;
 use Ushahidi\Modules\V5\DTO\UserSearchFields;
 use Ushahidi\Modules\V5\Requests\UserRequest;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Ushahidi\Core\Exception\NotFoundException;
 
 class UserController extends V5Controller
 {
+    public function fieldMonitors()
+    {
+        $this->authorize('index', new User());
+
+        return response()->json([
+            'results' => DB::table('field_monitors')
+                ->where('active', true)
+                ->orderBy('district')
+                ->orderBy('code')
+                ->get(['id', 'code', 'district']),
+        ]);
+    }
 
     /**
      * Display the specified resource.
@@ -96,6 +109,7 @@ class UserController extends V5Controller
 
         $command = new CreateUserCommand(UserEntity::buildEntity($request->input()));
         $this->commandBus->handle($command);
+        $this->syncFieldMonitors($command->getId(), $request);
         return new UserResource(
             $this->queryBus->handle(new FetchUserByIdQuery($command->getId()))
         );
@@ -118,6 +132,7 @@ class UserController extends V5Controller
         $this->commandBus->handle(
             new UpdateUserCommand($id, $userEntity)
         );
+        $this->syncFieldMonitors($id, $request);
         return new UserResource(
             $this->queryBus->handle(new FetchUserByIdQuery($id))
         );
@@ -158,4 +173,32 @@ class UserController extends V5Controller
         $this->commandBus->handle(new DeleteUserCommand($id));
         return $this->deleteResponse($id);
     } //end store()
+
+    private function syncFieldMonitors(int $userId, UserRequest $request): void
+    {
+        DB::transaction(function () use ($userId, $request) {
+            DB::table('partner_field_monitors')->where('partner_user_id', $userId)->delete();
+
+            if ($request->input('role') !== 'saferworld_partner') {
+                return;
+            }
+
+            $monitorIds = array_values(array_unique(array_map(
+                'intval',
+                $request->input('field_monitor_ids', [])
+            )));
+            $now = time();
+            $rows = array_map(function ($monitorId) use ($userId, $now) {
+                return [
+                    'partner_user_id' => $userId,
+                    'field_monitor_id' => $monitorId,
+                    'created' => $now,
+                ];
+            }, $monitorIds);
+
+            if (!empty($rows)) {
+                DB::table('partner_field_monitors')->insert($rows);
+            }
+        });
+    }
 } //end class

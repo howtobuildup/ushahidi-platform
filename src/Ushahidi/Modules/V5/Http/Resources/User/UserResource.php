@@ -7,6 +7,7 @@ use Illuminate\Support\Collection;
 use Ushahidi\Core\Entity\User;
 
 use App\Bus\Query\QueryBus;
+use Illuminate\Support\Facades\DB;
 
 class UserResource extends Resource
 {
@@ -59,6 +60,16 @@ class UserResource extends Resource
             'last_attempt' => $this->last_attempt,
             'gravatar' => $this->getGravatar($this->email),
             'contacts' => [],
+            'field_monitor_ids' => $this->role === 'saferworld_partner'
+                ? DB::table('partner_field_monitors')
+                    ->where('partner_user_id', $this->id)
+                    ->pluck('field_monitor_id')
+                    ->map(function ($id) {
+                        return (int) $id;
+                    })
+                    ->values()
+                    ->all()
+                : [],
             'permissions' => $this->getResourcePermissions(),
             'allowed_privileges' => $this->getResourcePrivileges()
 

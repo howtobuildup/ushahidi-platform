@@ -30,14 +30,18 @@ class UserRequest extends BaseRequest
                 'email' => ['required','unique:users,email','email','max:150'],
                 'password' => ['required','min:7','max:72'],
                 'realname'=>['max:150'],
-                'role'=>['string','exists:roles,name']
+                'role'=>['string','exists:roles,name'],
+                'field_monitor_ids'=>['array'],
+                'field_monitor_ids.*'=>['integer','exists:field_monitors,id'],
             ];
         } elseif ($request->isMethod('put')) {
             return [
                 'email' => ['filled','unique:users,email,'.$user_id,'email','max:150'],
                 'password' => ['filled','min:7','max:72'],
                 'realname'=>['max:150'],
-                'role'=>['string','exists:roles,name']
+                'role'=>['string','exists:roles,name'],
+                'field_monitor_ids'=>['array'],
+                'field_monitor_ids.*'=>['integer','exists:field_monitors,id'],
             ];
         } else {
             return [];
