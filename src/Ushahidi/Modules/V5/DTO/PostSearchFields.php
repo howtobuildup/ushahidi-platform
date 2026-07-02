@@ -42,6 +42,7 @@ class PostSearchFields extends SearchFields
 
     protected $bbox;
     protected $center_point;
+    protected $district;
     protected $include_unstructured_posts;
 
 
@@ -157,6 +158,7 @@ class PostSearchFields extends SearchFields
         $this->has_location = $request->query('has_location');
         $this->within_km = $request->query('within_km');
         $this->center_point = $request->query('center_point');
+        $this->district = $request->query('district');
         $this->bbox = $request->query('bbox');
 
         $this->set = $this->getParameterAsArray($request->get('set'));
@@ -310,6 +312,10 @@ class PostSearchFields extends SearchFields
     public function withinKm()
     {
         return $this->within_km;
+    }
+    public function district()
+    {
+        return $this->district;
     }
     public function includeUnstructuredPosts()
     {

@@ -172,6 +172,34 @@ class EloquentPostRepository implements PostRepository
             $query->where('posts.created', '>', strtotime($search_fields->dateAfter()));
         }
 
+        if ($search_fields->district()) {
+            $district = strtolower(trim($search_fields->district()));
+            $districtFields = [
+                '_2a_City_where_incidence_occurred',
+                '_2b_City_where_incidence_occurred',
+                'District where incidence occurred',
+                'City where incidence occurred',
+                'State where incidence occurred',
+                'Region where incidence occurred',
+            ];
+            $query->whereExists(function ($districtQuery) use ($district, $districtFields) {
+                $districtQuery->select(DB::raw(1))
+                    ->from('post_varchar')
+                    ->join(
+                        'form_attributes',
+                        'form_attributes.id',
+                        '=',
+                        'post_varchar.form_attribute_id'
+                    )
+                    ->whereColumn('post_varchar.post_id', 'posts.id')
+                    ->whereRaw('LOWER(TRIM(post_varchar.value)) = ?', [$district])
+                    ->where(function ($fieldQuery) use ($districtFields) {
+                        $fieldQuery->whereIn('form_attributes.key', $districtFields)
+                            ->orWhereIn('form_attributes.label', $districtFields);
+                    });
+            });
+        }
+
 
 
 
