@@ -19,6 +19,7 @@ RUN docker-php-ext-enable xdebug
 ENV PHP_INI_DIR=/etc/php/${PHP_MAJOR_VERSION}/cli
 RUN docker-php-ext-enable xdebug
 COPY docker-php-ext-xdebug.ini /etc/php/${PHP_MAJOR_VERSION}/fpm/conf.d
+COPY docker/php-uploads.ini /etc/php/${PHP_MAJOR_VERSION}/fpm/conf.d
 
 WORKDIR /var/www
 COPY composer.json ./
