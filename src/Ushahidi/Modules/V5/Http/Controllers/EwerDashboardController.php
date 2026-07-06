@@ -51,6 +51,10 @@ class EwerDashboardController extends V5Controller
         $incidentMix = $this->incidentMix($postCategories);
         $districts = $this->counts($postDistricts);
         $responsePostIds = $this->matchingPostIds($responses, ['yes']);
+        $respondingActors = $this->respondingActorRates(
+            $formId,
+            $responsePostIds
+        );
         $escalatingPostIds = $this->matchingPostIds($escalations, ['yes']);
         $escalationPostIds = $this->allPostIds($escalations);
 
@@ -165,12 +169,8 @@ class EwerDashboardController extends V5Controller
                 ),
                 'early_warning_districts' => $this->countsByDistrict($postDistricts, $warningPostIds),
                 'timeline' => $this->timeline($formId, $postCategories),
-                'responding_actors' => $this->namedCounts($this->countsForLabels(
-                    $formId,
-                    $this->fields('responding_actors'),
-                    [],
-                    true
-                )),
+                'responding_actors' => $respondingActors,
+                'responding_actors_total_yes' => count($responsePostIds),
             ],
         ]);
     }
@@ -318,6 +318,32 @@ class EwerDashboardController extends V5Controller
         foreach ($counts as $name => $value) {
             $result[] = ['name' => $name, 'value' => $value];
         }
+        return $result;
+    }
+
+    private function respondingActorRates($formId, array $responsePostIds)
+    {
+        if (empty($responsePostIds)) {
+            return [];
+        }
+
+        $counts = $this->countsForLabels(
+            $formId,
+            $this->fields('responding_actors'),
+            $responsePostIds,
+            true
+        );
+        $totalYes = count($responsePostIds);
+        $result = [];
+
+        foreach ($counts as $name => $frequency) {
+            $result[] = [
+                'name' => $name,
+                'frequency' => $frequency,
+                'percentage' => $this->percentage($frequency, $totalYes),
+            ];
+        }
+
         return $result;
     }
 
