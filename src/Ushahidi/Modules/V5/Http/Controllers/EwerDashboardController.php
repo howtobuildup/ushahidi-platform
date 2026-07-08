@@ -49,6 +49,7 @@ class EwerDashboardController extends V5Controller
 
         $postDistricts = $this->singleValueByPost($districtValues);
         $incidentMix = $this->incidentMix($postCategories);
+        $incidentCategories = $this->incidentCategories($postCategories, $this->visiblePostIds);
         $districts = $this->counts($postDistricts);
         $responsePostIds = $this->matchingPostIds($responses, ['yes']);
         $respondingActors = $this->respondingActorRates(
@@ -60,31 +61,20 @@ class EwerDashboardController extends V5Controller
 
         $districtTypes = [];
         foreach ($postDistricts as $postId => $district) {
-            $category = $this->category($postCategories[$postId] ?? '');
-            if (!$category) {
-                continue;
-            }
+            $category = $this->category($postCategories[$postId] ?? '') ?: 'uncategorized';
             if (!isset($districtTypes[$district])) {
                 $districtTypes[$district] = [
                     'name' => $district,
-                    'conflict' => 0,
-                    'gbv' => 0,
-                    'social' => 0,
-                    'warning' => 0,
-                    'climate' => 0,
+                    'types' => [],
+                    'total' => 0,
                 ];
             }
-            $districtTypes[$district][$category]++;
+            if (!isset($districtTypes[$district]['types'][$category])) {
+                $districtTypes[$district]['types'][$category] = 0;
+            }
+            $districtTypes[$district]['types'][$category]++;
+            $districtTypes[$district]['total']++;
         }
-
-        foreach ($districtTypes as &$districtType) {
-            $districtType['total'] = $districtType['conflict']
-                + $districtType['gbv']
-                + $districtType['social']
-                + $districtType['warning']
-                + $districtType['climate'];
-        }
-        unset($districtType);
         usort($districtTypes, function ($left, $right) {
             return $right['total'] <=> $left['total'];
         });
@@ -117,6 +107,7 @@ class EwerDashboardController extends V5Controller
                 ],
                 'districts' => $this->namedCounts($districts),
                 'incident_mix' => $incidentMix,
+                'incident_categories' => $incidentCategories,
                 'district_types' => array_values($districtTypes),
                 'conflict_types' => $this->namedCounts($this->countsForLabels(
                     $formId,
@@ -221,7 +212,7 @@ class EwerDashboardController extends V5Controller
         if (strpos($value, 'violence') !== false || strpos($value, 'cyber') !== false) {
             return 'social';
         }
-        return null;
+        return $value ?: null;
     }
 
     private function incidentMix(array $postCategories)
@@ -230,10 +221,32 @@ class EwerDashboardController extends V5Controller
         foreach ($postCategories as $value) {
             $category = $this->category($value);
             if ($category) {
+                if (!isset($counts[$category])) {
+                    $counts[$category] = 0;
+                }
                 $counts[$category]++;
             }
         }
         return $counts;
+    }
+
+    private function incidentCategories(array $postCategories, array $postIds)
+    {
+        $categories = [];
+        foreach ($postIds as $postId) {
+            $value = $postCategories[$postId] ?? '';
+            $key = $this->category($value) ?: 'uncategorized';
+            if (!isset($categories[$key])) {
+                $categories[$key] = [
+                    'key' => $key,
+                    'name' => trim((string) $value) ?: 'Uncategorized',
+                    'value' => 0,
+                ];
+            }
+            $categories[$key]['value']++;
+        }
+
+        return array_values($categories);
     }
 
     private function matchingPostIds($values, array $accepted)
@@ -333,24 +346,108 @@ class EwerDashboardController extends V5Controller
             return [];
         }
 
-        $counts = $this->countsForLabels(
-            $formId,
-            $this->fields('responding_actors'),
-            $responsePostIds,
-            true
-        );
+        $query = DB::table('post_varchar')
+            ->join('posts', 'posts.id', '=', 'post_varchar.post_id')
+            ->join('form_attributes', 'form_attributes.id', '=', 'post_varchar.form_attribute_id')
+            ->join('form_stages', 'form_stages.id', '=', 'form_attributes.form_stage_id')
+            ->where('posts.form_id', $formId)
+            ->where('form_stages.form_id', $formId)
+            ->whereIn('posts.id', $responsePostIds)
+            ->select(['post_varchar.post_id', 'post_varchar.value']);
+        $this->whereFieldMatches($query, $this->fields('responding_actors'));
+        $this->scopePosts($query);
+
+        $actorsByPost = [];
+        $actorNames = [];
+        foreach ($query->get() as $row) {
+            $decoded = json_decode($row->value, true);
+            $values = is_array($decoded) ? $decoded : [$row->value];
+            $expandedValues = [];
+            foreach ($values as $value) {
+                $expandedValues = array_merge($expandedValues, $this->expandActorValue($value));
+            }
+            foreach ($expandedValues as $value) {
+                $value = trim((string) $value);
+                if ($value === '') {
+                    continue;
+                }
+                $key = $this->canonicalActor($value);
+                $actorsByPost[(int) $row->post_id][$key] = true;
+                if (!isset($actorNames[$key])) {
+                    $actorNames[$key] = $this->actorName($key, $value);
+                }
+            }
+        }
+
+        $counts = [];
+        foreach ($actorsByPost as $actors) {
+            foreach (array_keys($actors) as $key) {
+                $counts[$key] = ($counts[$key] ?? 0) + 1;
+            }
+        }
+        arsort($counts);
         $totalYes = count($responsePostIds);
         $result = [];
 
-        foreach ($counts as $name => $frequency) {
+        foreach ($counts as $key => $frequency) {
             $result[] = [
-                'name' => $name,
+                'name' => $actorNames[$key],
                 'frequency' => $frequency,
                 'percentage' => $this->percentage($frequency, $totalYes),
             ];
         }
 
         return $result;
+    }
+
+    private function canonicalActor($value)
+    {
+        $key = $this->normalize($value);
+        $key = preg_replace('/_climate$/', '', $key);
+        $aliases = [
+            'cbo' => 'cbos',
+            'community_based_organisations_cbo' => 'cbos',
+            'community_based_organizations_cbo' => 'cbos',
+            'community_based_organisation' => 'cbos',
+            'community_based_organisations' => 'cbos',
+            'community_based_organization' => 'cbos',
+            'community_based_organizations' => 'cbos',
+            'district_administration' => 'local_government',
+        ];
+
+        return $aliases[$key] ?? $key;
+    }
+
+    private function expandActorValue($value)
+    {
+        $value = trim((string) $value);
+        if (preg_match('/^[a-z0-9_]+(?:\s+[a-z0-9_]+)+$/', $value)) {
+            return preg_split('/\s+/', $value);
+        }
+
+        return [$value];
+    }
+
+    private function actorName($key, $fallback)
+    {
+        $names = [
+            'cbos' => 'CBOs',
+            'local_government' => 'Local government',
+            'police' => 'Police',
+            'traditional_elders' => 'Traditional elders',
+            'religious_leaders' => 'Religious leaders',
+            'community_mediation' => 'Community mediation',
+            'somali_national_army_sna' => 'Somali National Army (SNA)',
+            'government_ministries' => 'Government ministries',
+            'local_ngo' => 'Local NGO',
+            'international_ngo' => 'International NGO',
+            'formal_justice_mechanism_formal_courts' => 'Formal justice mechanisms',
+            'informal_justice_mechanism_e_g_clan_eld' => 'Informal justice mechanisms',
+            'emergency_services' => 'Emergency services',
+            'regional_players_or_actors_e_g_igad_atm' => 'Regional actors',
+        ];
+
+        return $names[$key] ?? $fallback;
     }
 
     private function countsByDistrict(array $postDistricts, array $postIds)
