@@ -288,13 +288,17 @@ class ImportKoboEwerCommand extends Command
         $attributesByName = [];
         foreach ($attributes as $attribute) {
             foreach ([$attribute->key, $attribute->label] as $candidate) {
-                $normalized = $this->normalizeName($candidate);
-                if ($normalized !== '') {
-                    if (!isset($attributesByName[$normalized])) {
-                        $attributesByName[$normalized] = [];
-                    }
-                    if (!in_array($attribute, $attributesByName[$normalized], true)) {
-                        $attributesByName[$normalized][] = $attribute;
+                foreach (array_unique([
+                    $this->normalizeName($candidate),
+                    $this->normalizeQuestionName($candidate),
+                ]) as $normalized) {
+                    if ($normalized !== '') {
+                        if (!isset($attributesByName[$normalized])) {
+                            $attributesByName[$normalized] = [];
+                        }
+                        if (!in_array($attribute, $attributesByName[$normalized], true)) {
+                            $attributesByName[$normalized][] = $attribute;
+                        }
                     }
                 }
             }
@@ -309,6 +313,9 @@ class ImportKoboEwerCommand extends Command
                 ?? $aliases[$baseHeader]
                 ?? $baseHeader;
             $normalized = $this->normalizeName($target);
+            if (empty($attributesByName[$normalized])) {
+                $normalized = $this->normalizeQuestionName($target);
+            }
             if (!empty($attributesByName[$normalized])) {
                 $position = $positions[$normalized] ?? 0;
                 $attribute = $attributesByName[$normalized][$position]
@@ -389,13 +396,22 @@ class ImportKoboEwerCommand extends Command
 
         foreach ($headers as $header) {
             $baseHeader = $this->baseHeader($header);
+            $separator = strpos($baseHeader, '/');
+            $headerQuestion = $separator === false ? $baseHeader : substr($baseHeader, 0, $separator);
+            $headerChoice = $separator === false ? '' : substr($baseHeader, $separator + 1);
             foreach ($prefixes as $prefix) {
                 $needle = $prefix . '/';
-                if (stripos($baseHeader, $needle) !== 0) {
+                $matchesExactPrefix = stripos($baseHeader, $needle) === 0;
+                $matchesNormalizedQuestion = $separator !== false
+                    && $this->normalizeQuestionName($headerQuestion)
+                        === $this->normalizeQuestionName($prefix);
+                if (!$matchesExactPrefix && !$matchesNormalizedQuestion) {
                     continue;
                 }
                 if ($this->isTruthySelection($row[$header] ?? null)) {
-                    $selected[] = substr($baseHeader, strlen($needle));
+                    $selected[] = $matchesExactPrefix
+                        ? substr($baseHeader, strlen($needle))
+                        : $headerChoice;
                 }
             }
         }
@@ -659,6 +675,12 @@ class ImportKoboEwerCommand extends Command
         $value = Str::ascii(trim((string) $value));
         $value = strtolower($value);
         return trim(preg_replace('/[^a-z0-9]+/', ' ', $value));
+    }
+
+    private function normalizeQuestionName($value)
+    {
+        $normalized = $this->normalizeName($value);
+        return trim(preg_replace('/^\d+[a-z]?\s+/', '', $normalized));
     }
 
     private function isSpecialHeader($header)

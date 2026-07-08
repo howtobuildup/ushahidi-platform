@@ -71,6 +71,7 @@ class EwerDashboardController extends V5Controller
                     'gbv' => 0,
                     'social' => 0,
                     'warning' => 0,
+                    'climate' => 0,
                 ];
             }
             $districtTypes[$district][$category]++;
@@ -80,7 +81,8 @@ class EwerDashboardController extends V5Controller
             $districtType['total'] = $districtType['conflict']
                 + $districtType['gbv']
                 + $districtType['social']
-                + $districtType['warning'];
+                + $districtType['warning']
+                + $districtType['climate'];
         }
         unset($districtType);
         usort($districtTypes, function ($left, $right) {
@@ -106,6 +108,7 @@ class EwerDashboardController extends V5Controller
                     'conflicts' => $incidentMix['conflict'],
                     'social_violence' => $incidentMix['social'],
                     'early_warning' => $incidentMix['warning'],
+                    'environmental_climate' => $incidentMix['climate'],
                     'response_rate' => $this->percentage(count($responsePostIds), count($this->allPostIds($responses))),
                     'escalation_rate' => $this->percentage(
                         count($escalatingPostIds),
@@ -203,13 +206,16 @@ class EwerDashboardController extends V5Controller
     private function category($value)
     {
         $value = $this->normalize($value);
+        if (strpos($value, 'climate') !== false || strpos($value, 'environment') !== false) {
+            return 'climate';
+        }
         if (strpos($value, 'gender') !== false || $value === 'gbv') {
             return 'gbv';
         }
         if (strpos($value, 'conflict') !== false || strpos($value, 'clan') !== false) {
             return 'conflict';
         }
-        if (strpos($value, 'warning') !== false || strpos($value, 'environment') !== false) {
+        if (strpos($value, 'warning') !== false) {
             return 'warning';
         }
         if (strpos($value, 'violence') !== false || strpos($value, 'cyber') !== false) {
@@ -220,7 +226,7 @@ class EwerDashboardController extends V5Controller
 
     private function incidentMix(array $postCategories)
     {
-        $counts = ['conflict' => 0, 'gbv' => 0, 'social' => 0, 'warning' => 0];
+        $counts = ['conflict' => 0, 'gbv' => 0, 'social' => 0, 'warning' => 0, 'climate' => 0];
         foreach ($postCategories as $value) {
             $category = $this->category($value);
             if ($category) {
@@ -428,7 +434,7 @@ class EwerDashboardController extends V5Controller
     private function responseCoverage(array $postCategories, $responses)
     {
         $responded = array_fill_keys($this->matchingPostIds($responses, ['yes']), true);
-        $totals = ['conflict' => 0, 'gbv' => 0, 'social' => 0, 'warning' => 0];
+        $totals = ['conflict' => 0, 'gbv' => 0, 'social' => 0, 'warning' => 0, 'climate' => 0];
         $responseTotals = $totals;
 
         foreach ($postCategories as $postId => $value) {
@@ -488,6 +494,7 @@ class EwerDashboardController extends V5Controller
                     'gbv' => 0,
                     'social' => 0,
                     'warning' => 0,
+                    'climate' => 0,
                     'total' => 0,
                 ];
             }
@@ -597,7 +604,9 @@ class EwerDashboardController extends V5Controller
     private function normalizeCategoryFilter($value)
     {
         $value = $this->normalize($value);
-        return in_array($value, ['conflict', 'gbv', 'social', 'warning'], true) ? $value : null;
+        return in_array($value, ['conflict', 'gbv', 'social', 'warning', 'climate'], true)
+            ? $value
+            : null;
     }
 
     private function normalize($value)
@@ -664,6 +673,12 @@ class EwerDashboardController extends V5Controller
             ],
             'responding_actors' => [
                 '_10a_Who_are_the_actors_respon',
+                '_21a_Who_are_the_actors_respon',
+                '_29b_Who_are_the_actors_respon',
+                '_38b_Who_are_the_actors_respon',
+                '_47c_Who_are_the_actors_respon',
+                '_58b_Who_are_the_actors_respon',
+                'responded_actors',
                 'Who are the actors responding to the situation on the ground?',
             ],
         ];
