@@ -460,6 +460,7 @@ $router->group([
         ],
         function () use ($router) {
             $router->get('/', 'ExportJobController@index');
+            $router->get('/{id}/download', 'ExportJobController@download');
             $router->get('/{id}', 'ExportJobController@show');
             $router->post('/', 'ExportJobController@store');
             $router->put('/{id}', 'ExportJobController@update');

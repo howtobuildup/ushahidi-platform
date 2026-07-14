@@ -13,6 +13,7 @@ use Ushahidi\Modules\V5\Actions\Export\Commands\DeleteExportJobCommand;
 use Ushahidi\Modules\V5\Requests\ExportJobRequest;
 use Ushahidi\Modules\V5\Models\ExportJob;
 use Ushahidi\Core\Exception\NotFoundException;
+use Illuminate\Support\Facades\Storage;
 
 class ExportJobController extends V5Controller
 {
@@ -31,6 +32,38 @@ class ExportJobController extends V5Controller
         $this->authorize('show', $export_job);
         return new ExportJobResource($export_job);
     } //end show()
+
+    /**
+     * Download the generated export file through the API.
+     *
+     * This avoids exposing /storage paths directly, which can fail behind
+     * production ingress rules even when the file exists on the configured disk.
+     *
+     * @param integer $id
+     * @return mixed
+     * @throws \Illuminate\Auth\Access\AuthorizationException
+     */
+    public function download(int $id)
+    {
+        $export_job = $this->queryBus->handle(new FetchExportJobByIdQuery($id));
+        $this->authorize('show', $export_job);
+
+        if (!$export_job->url || !Storage::exists($export_job->url)) {
+            return self::make404('The exported CSV file could not be found.');
+        }
+
+        $filename = basename($export_job->url) ?: 'export-' . $id . '.csv';
+
+        return response()->streamDownload(function () use ($export_job) {
+            $stream = Storage::readStream($export_job->url);
+            if ($stream) {
+                fpassthru($stream);
+                fclose($stream);
+            }
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    } //end download()
 
 
 
