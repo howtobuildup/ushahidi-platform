@@ -39,15 +39,33 @@ class EwerDashboardController extends V5Controller
                 $this->visiblePostIds,
                 $this->postsInCategory($postCategories, $incidentFilter)
             ));
-            $categories = $this->postValues($formId, $this->fields('incident_type'));
-            $postCategories = $this->singleValueByPost($categories);
         }
 
+        $categories = $this->postValues($formId, $this->fields('incident_type'));
+        $postCategories = $this->singleValueByPost($categories);
+        $incidentPostIds = $this->incidentPostIds($postCategories);
+        $this->visiblePostIds = array_values(array_intersect($this->visiblePostIds, $incidentPostIds));
+
+        $categories = $this->postValues($formId, $this->fields('incident_type'));
+        $postCategories = $this->singleValueByPost($categories);
         $districtValues = $this->postValues($formId, $this->fields('district'));
+        $postDistricts = $this->singleValueByPost($districtValues);
+        $districtOptions = $this->namedCounts($this->counts($postDistricts));
+        $districtFilter = $this->normalizeDistrictFilter($request->query('district'));
+        if ($districtFilter) {
+            $this->visiblePostIds = array_values(array_intersect(
+                $this->visiblePostIds,
+                $this->postsInDistrict($postDistricts, $districtFilter)
+            ));
+        }
+
+        $categories = $this->postValues($formId, $this->fields('incident_type'));
+        $postCategories = $this->singleValueByPost($categories);
+        $districtValues = $this->postValues($formId, $this->fields('district'));
+        $postDistricts = $this->singleValueByPost($districtValues);
         $responses = $this->postValues($formId, $this->fields('response_happened'));
         $escalations = $this->postValues($formId, $this->fields('escalation_indicators'));
 
-        $postDistricts = $this->singleValueByPost($districtValues);
         $incidentMix = $this->incidentMix($postCategories);
         $incidentCategories = $this->incidentCategories($postCategories, $this->visiblePostIds);
         $districts = $this->counts($postDistricts);
@@ -91,9 +109,7 @@ class EwerDashboardController extends V5Controller
                 'form_id' => $formId,
                 'reporting_period' => $this->reportingPeriod($formId),
                 'kpis' => [
-                    'total_reports' => $this->scopePosts(
-                        DB::table('posts')->where('form_id', $formId)
-                    )->count(),
+                    'total_reports' => count($this->visiblePostIds),
                     'gbv' => $incidentMix['gbv'],
                     'conflicts' => $incidentMix['conflict'],
                     'social_violence' => $incidentMix['social'],
@@ -106,6 +122,7 @@ class EwerDashboardController extends V5Controller
                     ),
                 ],
                 'districts' => $this->namedCounts($districts),
+                'district_options' => $districtOptions,
                 'incident_mix' => $incidentMix,
                 'incident_categories' => $incidentCategories,
                 'district_types' => array_values($districtTypes),
@@ -281,6 +298,28 @@ class EwerDashboardController extends V5Controller
         return $ids;
     }
 
+    private function incidentPostIds(array $postCategories)
+    {
+        $ids = [];
+        foreach ($postCategories as $postId => $value) {
+            if ($this->category($value)) {
+                $ids[] = (int) $postId;
+            }
+        }
+        return $ids;
+    }
+
+    private function postsInDistrict(array $postDistricts, $district)
+    {
+        $ids = [];
+        foreach ($postDistricts as $postId => $value) {
+            if ($this->normalize($value) === $district) {
+                $ids[] = (int) $postId;
+            }
+        }
+        return $ids;
+    }
+
     private function counts(array $values)
     {
         $counts = [];
@@ -413,6 +452,15 @@ class EwerDashboardController extends V5Controller
             'community_based_organization' => 'cbos',
             'community_based_organizations' => 'cbos',
             'district_administration' => 'local_government',
+            'local_administration' => 'local_government',
+            'local_government_administration' => 'local_government',
+            'local_ngos' => 'local_ngo',
+            'regional_players_or_actors_e_g_igad_atmis' => 'regional_players_or_actors_e_g_igad_atm',
+            'regional_players_or_actors_eg_igad_atmis' => 'regional_players_or_actors_e_g_igad_atm',
+            'informal_justice_mechanisms' => 'informal_justice_mechanism_e_g_clan_eld',
+            'informal_justice_mechanism_e_g_clan_elders' => 'informal_justice_mechanism_e_g_clan_eld',
+            'formal_justice_mechanisms' => 'formal_justice_mechanism_formal_courts',
+            'formal_courts' => 'formal_justice_mechanism_formal_courts',
         ];
 
         return $aliases[$key] ?? $key;
@@ -538,6 +586,10 @@ class EwerDashboardController extends V5Controller
             $category = $this->category($value);
             if (!$category) {
                 continue;
+            }
+            if (!isset($totals[$category])) {
+                $totals[$category] = 0;
+                $responseTotals[$category] = 0;
             }
             $totals[$category]++;
             if (isset($responded[$postId])) {
@@ -704,6 +756,12 @@ class EwerDashboardController extends V5Controller
         return in_array($value, ['conflict', 'gbv', 'social', 'warning', 'climate'], true)
             ? $value
             : null;
+    }
+
+    private function normalizeDistrictFilter($value)
+    {
+        $value = $this->normalize($value);
+        return $value && $value !== 'all' ? $value : null;
     }
 
     private function normalize($value)
