@@ -13,10 +13,13 @@ use Ushahidi\Modules\V5\Actions\Export\Commands\DeleteExportJobCommand;
 use Ushahidi\Modules\V5\Requests\ExportJobRequest;
 use Ushahidi\Modules\V5\Models\ExportJob;
 use Ushahidi\Core\Exception\NotFoundException;
+use Ushahidi\Core\Concerns\FormatRackspaceURL;
 use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 class ExportJobController extends V5Controller
 {
+    use FormatRackspaceURL;
 
 
     /**
@@ -48,22 +51,87 @@ class ExportJobController extends V5Controller
         $export_job = $this->queryBus->handle(new FetchExportJobByIdQuery($id));
         $this->authorize('show', $export_job);
 
-        if (!$export_job->url || !Storage::exists($export_job->url)) {
-            return self::make404('The exported CSV file could not be found.');
+        if (strtoupper((string) $export_job->status) !== 'SUCCESS') {
+            return response()->json([
+                'error' => 409,
+                'message' => 'The exported CSV file is not ready yet.',
+            ], 409);
         }
 
-        $filename = basename($export_job->url) ?: 'export-' . $id . '.csv';
+        if (!$export_job->url) {
+            return response()->json([
+                'error' => 409,
+                'message' => 'The exported CSV file is not ready yet.',
+            ], 409);
+        }
 
-        return response()->streamDownload(function () use ($export_job) {
-            $stream = Storage::readStream($export_job->url);
-            if ($stream) {
-                fpassthru($stream);
-                fclose($stream);
+        if (filter_var($export_job->url, FILTER_VALIDATE_URL)) {
+            return redirect()->away($export_job->url);
+        }
+
+        $path = $this->normalizeExportPath($export_job->url);
+        foreach ($this->exportStorageDisks() as $disk) {
+            $download = $this->streamExportFromDisk($disk, $path, $id);
+            if ($download) {
+                return $download;
             }
-        }, $filename, [
-            'Content-Type' => 'text/csv; charset=UTF-8',
-        ]);
+        }
+
+        $fallback_url = $this->formatUrl($path);
+        if ($fallback_url && filter_var($fallback_url, FILTER_VALIDATE_URL)) {
+            return redirect()->away($fallback_url);
+        }
+
+        return self::make404('The exported CSV file could not be found.');
     } //end download()
+
+    private function streamExportFromDisk($disk, $path, $id)
+    {
+        try {
+            $storage = Storage::disk($disk);
+            $stream = $storage->readStream($path);
+            if ($stream) {
+                fclose($stream);
+                $filename = basename($path) ?: 'export-' . $id . '.csv';
+                return response()->streamDownload(function () use ($storage, $path) {
+                    $stream = $storage->readStream($path);
+                    if ($stream) {
+                        fpassthru($stream);
+                        fclose($stream);
+                    }
+                }, $filename, [
+                    'Content-Type' => 'text/csv; charset=UTF-8',
+                ]);
+            }
+        } catch (Throwable $e) {
+            return null;
+        }
+
+        return null;
+    }
+
+    private function exportStorageDisks()
+    {
+        return array_values(array_unique(array_filter([
+            config('filesystems.default'),
+            'public',
+            'local',
+        ])));
+    }
+
+    private function normalizeExportPath($path)
+    {
+        $path = rawurldecode((string) $path);
+        $url_path = parse_url($path, PHP_URL_PATH);
+        if ($url_path) {
+            $path = $url_path;
+        }
+        $path = ltrim($path, '/');
+        if (strpos($path, 'storage/') === 0) {
+            $path = substr($path, strlen('storage/'));
+        }
+        return $path;
+    }
 
 
 
