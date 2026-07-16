@@ -78,7 +78,11 @@ class ExportJobController extends V5Controller
         }
 
         $fallback_url = $this->formatUrl($path);
-        if ($fallback_url && filter_var($fallback_url, FILTER_VALIDATE_URL)) {
+        if (
+            $fallback_url &&
+            filter_var($fallback_url, FILTER_VALIDATE_URL) &&
+            !$this->isLocalStorageUrl($fallback_url)
+        ) {
             return redirect()->away($fallback_url);
         }
 
@@ -114,6 +118,7 @@ class ExportJobController extends V5Controller
     {
         return array_values(array_unique(array_filter([
             config('filesystems.default'),
+            config('filesystems.cloud'),
             'public',
             'local',
         ])));
@@ -131,6 +136,12 @@ class ExportJobController extends V5Controller
             $path = substr($path, strlen('storage/'));
         }
         return $path;
+    }
+
+    private function isLocalStorageUrl($url)
+    {
+        $path = parse_url($url, PHP_URL_PATH);
+        return is_string($path) && strpos(ltrim($path, '/'), 'storage/') === 0;
     }
 
 
