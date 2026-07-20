@@ -326,4 +326,96 @@ class CSVTest extends TestCase
             '', //last_location_point.lot
         ], $values);
     }
+
+    public function testXlsFormChoiceNamesAreExportedAsDisplayLabels()
+    {
+        $attributes = [
+            'incidence_type' => [
+                'key' => 'incidence_type',
+                'label' => 'Incidence type',
+                'input' => 'select',
+                'type' => 'varchar',
+                'form_id' => 1,
+                'form_stage_id' => 1,
+                'form_stage_priority' => 1,
+                'priority' => 1,
+                'options' => json_encode([
+                    [
+                        'name' => 'climate_shock',
+                        'label' => 'Environmental and Climate Early Warning',
+                    ],
+                    [
+                        'name' => 'social_violence',
+                        'label' => 'Social Violence',
+                    ],
+                ]),
+            ],
+        ];
+
+        $this->formatter->createHeading(array_values($attributes));
+
+        $values = $this->formatter->formatRecordForCSV([
+            'form_id' => 1,
+            'values' => ['incidence_type' => ['climate_shock']],
+        ], $attributes);
+
+        $this->assertSame(['Environmental and Climate Early Warning'], $values);
+    }
+
+    public function testMultipleXlsFormChoicesAreExportedAsDisplayLabels()
+    {
+        $attributes = [
+            'incident_causes' => [
+                'key' => 'incident_causes',
+                'label' => 'Incident causes',
+                'input' => 'checkbox',
+                'type' => 'varchar',
+                'form_id' => 1,
+                'form_stage_id' => 1,
+                'form_stage_priority' => 1,
+                'priority' => 1,
+                'options' => json_encode([
+                    ['name' => 'climate_shock', 'label' => 'Climate Shock'],
+                    ['name' => 'social_violence', 'label' => 'Social Violence'],
+                ]),
+            ],
+        ];
+
+        $this->formatter->createHeading(array_values($attributes));
+
+        $values = $this->formatter->formatRecordForCSV([
+            'form_id' => 1,
+            'values' => [
+                'incident_causes' => [json_encode(['climate_shock', 'social_violence'])],
+            ],
+        ], $attributes);
+
+        $this->assertSame(['Climate Shock, Social Violence'], $values);
+    }
+
+    public function testLegacyAndUnknownChoiceValuesRemainUnchanged()
+    {
+        $attributes = [
+            'status' => [
+                'key' => 'status',
+                'label' => 'Status',
+                'input' => 'select',
+                'type' => 'varchar',
+                'form_id' => 1,
+                'form_stage_id' => 1,
+                'form_stage_priority' => 1,
+                'priority' => 1,
+                'options' => json_encode(['open', 'closed']),
+            ],
+        ];
+
+        $this->formatter->createHeading(array_values($attributes));
+
+        $values = $this->formatter->formatRecordForCSV([
+            'form_id' => 1,
+            'values' => ['status' => ['archived']],
+        ], $attributes);
+
+        $this->assertSame(['archived'], $values);
+    }
 }

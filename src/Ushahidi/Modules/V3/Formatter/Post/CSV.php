@@ -327,6 +327,18 @@ class CSV extends API
             $recordValue[$headingKey] = $this->decodeCheckboxValue($recordValue[$headingKey][$key]);
         }
 
+        // XLSForm choices store a machine-readable name alongside the label shown to users.
+        // Posts retain the name so skip logic continues to work, but CSV exports should use
+        // the label that was presented when the response was collected.
+        $isChoiceField = isset($recordAttributes['input']) &&
+            in_array($recordAttributes['input'], ['checkbox', 'radio', 'select'], true);
+        if ($isChoiceField && isset($recordValue[$headingKey])) {
+            $recordValue[$headingKey] = $this->replaceChoiceNamesWithLabels(
+                $recordValue[$headingKey],
+                isset($recordAttributes['options']) ? $recordAttributes['options'] : []
+            );
+        }
+
         /**
          * We have 3 formats. A single value array is only a lat/lon right now but would be usable
          * for other formats where we have a specific way to separate their fields in columns
@@ -514,6 +526,48 @@ class CSV extends API
         // this encodeded as comma separated values. Note that this didn't
         // support having commas in the checkbox labels.
         return explode(",", $value);
+    }
+
+    /**
+     * Replace XLSForm choice names with their display labels for export.
+     *
+     * Legacy surveys store options as strings rather than name/label objects. Those
+     * values, and any response whose option can no longer be found, are left unchanged.
+     *
+     * @param mixed $value
+     * @param mixed $options
+     * @return mixed
+     */
+    private function replaceChoiceNamesWithLabels($value, $options)
+    {
+        if (is_string($options)) {
+            $decodedOptions = json_decode($options, true);
+            $options = is_array($decodedOptions) ? $decodedOptions : [];
+        }
+
+        if (!is_array($options)) {
+            return $value;
+        }
+
+        $labels = [];
+        foreach ($options as $option) {
+            if (!is_array($option)) {
+                continue;
+            }
+
+            $name = $option['name'] ?? $option['value'] ?? $option['id'] ?? null;
+            $label = $option['label'] ?? $option['tag'] ?? null;
+            if ($name !== null && $label !== null) {
+                $labels[(string) $name] = $label;
+            }
+        }
+
+        $replace = function ($choice) use ($labels) {
+            $key = (string) $choice;
+            return array_key_exists($key, $labels) ? $labels[$key] : $choice;
+        };
+
+        return is_array($value) ? array_map($replace, $value) : $replace($value);
     }
 
     /**
