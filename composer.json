@@ -6,6 +6,13 @@
     "license": "AGPL-3.0",
     "repositories": [
         {
+            "type": "path",
+            "url": "packages/symm-gisconverter",
+            "options": {
+                "symlink": false
+            }
+        },
+        {
             "type": "vcs",
             "url": "https://github.com/ushahidi/ohanzee-db"
         },

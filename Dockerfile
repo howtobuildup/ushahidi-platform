@@ -24,6 +24,7 @@ COPY docker/php-uploads.ini /etc/php/${PHP_MAJOR_VERSION}/fpm/conf.d
 WORKDIR /var/www
 COPY composer.json ./
 COPY composer.lock ./
+COPY packages ./packages
 RUN composer self-update --2
 RUN composer install --no-autoloader --no-scripts
 COPY docker/csv-upload.ini /etc/php/${PHP_MAJOR_VERSION}/fpm/conf.d/zz-csv-upload.ini
