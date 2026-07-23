@@ -25,11 +25,45 @@ class CSVTest extends TestCase
         parent::setup();
         $this->fs = \Mockery::mock(\League\Flysystem\Filesystem::class);
 
-        $this->fs->shouldReceive('putStream')->andReturn([]);
+        $this->fs->shouldReceive('putStream')->byDefault()->andReturn([]);
         $this->fs->shouldReceive('getSize')->andReturn(200);
         $this->fs->shouldReceive('getMimetype')->andReturn('text/csv');
         $this->formatter = new CSV();
         $this->formatter->setFilesystem($this->fs);
+    }
+
+    public function testGeneratedCsvStreamIsRewoundBeforeStorage()
+    {
+        $storedContents = null;
+        $this->fs->shouldReceive('putStream')
+            ->once()
+            ->withArgs(function ($path, $stream) use (&$storedContents) {
+                $storedContents = stream_get_contents($stream);
+                return strpos($path, 'csv/batches/') === 0;
+            })
+            ->andReturn(true);
+
+        $header = [[
+            'label' => 'Title',
+            'key' => 'title',
+            'type' => 'title',
+            'input' => 'text',
+            'form_id' => 0,
+            'form_stage_id' => 0,
+            'form_stage_priority' => 0,
+            'priority' => 1,
+        ]];
+        $job = (object) ['header_row' => $header];
+        $this->formatter->setAddHeader(false);
+        $formatter = $this->formatter;
+
+        $formatter([[
+            'title' => 'A stored response',
+            'form_id' => null,
+        ]], $job, ['title' => $header[0]]);
+
+        $this->assertNotEmpty($storedContents);
+        $this->assertStringContainsString('A stored response', $storedContents);
     }
 
     public function testCSVRowsAreCreated()

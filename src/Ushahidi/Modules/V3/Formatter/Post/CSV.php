@@ -198,6 +198,11 @@ class CSV extends API
             fputcsv($stream, mb_convert_encoding($values, 'UTF-8', 'auto'));
         }
 
+        // tmpfile() leaves the pointer at the end after writing. Flysystem copies
+        // from the current pointer, so the stream must be rewound or a zero-byte
+        // CSV is stored.
+        rewind($stream);
+
         return $this->writeStreamToFS($stream);
     }
 

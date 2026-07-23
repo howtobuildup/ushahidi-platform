@@ -3,7 +3,6 @@
 namespace Ushahidi\Modules\V3\Jobs;
 
 use RuntimeException;
-use Illuminate\Http\File;
 use Illuminate\Support\Str;
 use Ushahidi\Core\Tool\Job;
 use Illuminate\Support\Carbon;
@@ -12,7 +11,6 @@ use Ushahidi\Core\Entity\ExportJob;
 use Ushahidi\Core\Entity\ExportBatch;
 use Illuminate\Support\Facades\Storage;
 use Ushahidi\Core\Concerns\RecordsExportJobFailure;
-use Illuminate\Support\Facades\File as LocalFilesystem;
 use Ushahidi\Contracts\Repository\Entity\ExportJobRepository;
 use Ushahidi\Contracts\Repository\Entity\ExportBatchRepository;
 
@@ -94,23 +92,38 @@ class CombineExportedPostBatchesJob extends Job
     {
         // Create destination filename
         $destinationFileName = Carbon::now()->format('Ymd').'-'.Str::random(40).'.csv';
-        $tempFile = storage_path('app/temp/'.$destinationFileName);
-
-        foreach ($fileNames as $file) {
-            Log::debug('Processing file', compact('file'));
-            // Read file into stream
-            $stream = Storage::readStream($file);
-
-            // Append to combined file (uses stream automatically)
-            LocalFilesystem::append($tempFile, $stream);
+        $uploadedFileName = trim($this->csvPrefix, '/').'/'.$destinationFileName;
+        $destinationStream = tmpfile();
+        if (! is_resource($destinationStream)) {
+            throw new RuntimeException('Unable to create the combined export stream');
         }
 
-        $uploadedFileName = Storage::putFileAs($this->csvPrefix, new File($tempFile), $destinationFileName);
+        try {
+            foreach ($fileNames as $file) {
+                Log::debug('Processing file', compact('file'));
+                $stream = Storage::readStream($file);
+                if (! is_resource($stream)) {
+                    throw new RuntimeException('Unable to read export batch: '.$file);
+                }
+
+                try {
+                    if (stream_copy_to_stream($stream, $destinationStream) === false) {
+                        throw new RuntimeException('Unable to combine export batch: '.$file);
+                    }
+                } finally {
+                    fclose($stream);
+                }
+            }
+
+            rewind($destinationStream);
+            if (! Storage::put($uploadedFileName, $destinationStream)) {
+                throw new RuntimeException('Unable to store the combined export');
+            }
+        } finally {
+            fclose($destinationStream);
+        }
 
         Log::debug('Uploaded combined file', compact('uploadedFileName'));
-
-        // Destroy local tmp file
-        LocalFilesystem::delete($tempFile);
 
         return $uploadedFileName;
     }
