@@ -93,18 +93,23 @@ class ExportJobController extends V5Controller
     {
         try {
             $storage = Storage::disk($disk);
+            $size = $storage->size($path);
+            if ($size <= 0) {
+                return null;
+            }
+
             $stream = $storage->readStream($path);
-            if ($stream) {
-                fclose($stream);
+            if (is_resource($stream)) {
                 $filename = basename($path) ?: 'export-' . $id . '.csv';
-                return response()->streamDownload(function () use ($storage, $path) {
-                    $stream = $storage->readStream($path);
-                    if ($stream) {
+                return response()->streamDownload(function () use ($stream) {
+                    try {
                         fpassthru($stream);
+                    } finally {
                         fclose($stream);
                     }
                 }, $filename, [
                     'Content-Type' => 'text/csv; charset=UTF-8',
+                    'Content-Length' => $size,
                 ]);
             }
         } catch (Throwable $e) {
