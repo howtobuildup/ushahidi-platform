@@ -103,6 +103,10 @@ class EwerDashboardController extends V5Controller
         $postConflictTypes = $this->singleValueByPost(
             $this->postValues($formId, $this->fields('conflict_type'))
         );
+        $clanConflictPostIds = $this->postsMatchingValue(
+            $postConflictTypes,
+            ['clan', 'community']
+        );
 
         return response()->json([
             'result' => [
@@ -134,7 +138,8 @@ class EwerDashboardController extends V5Controller
                 'conflict_drivers' => $this->namedCounts($this->countsForLabels(
                     $formId,
                     $this->fields('conflict_drivers'),
-                    $conflictPostIds
+                    $clanConflictPostIds,
+                    true
                 )),
                 'conflict_response' => $this->responseByValue(
                     $postConflictTypes,
@@ -320,6 +325,22 @@ class EwerDashboardController extends V5Controller
         return $ids;
     }
 
+    private function postsMatchingValue(array $valuesByPost, array $needles)
+    {
+        $ids = [];
+        foreach ($valuesByPost as $postId => $value) {
+            $value = $this->normalize($value);
+            foreach ($needles as $needle) {
+                if (strpos($value, $this->normalize($needle)) !== false) {
+                    $ids[] = (int) $postId;
+                    break;
+                }
+            }
+        }
+
+        return $ids;
+    }
+
     private function counts(array $values)
     {
         $counts = [];
@@ -353,21 +374,33 @@ class EwerDashboardController extends V5Controller
         }
 
         $counts = [];
-        foreach ($query->pluck('post_varchar.value') as $rawValue) {
-            $values = [$rawValue];
+        $names = [];
+        $seenByPost = [];
+        foreach ($query->get(['post_varchar.post_id', 'post_varchar.value']) as $row) {
+            $values = [$row->value];
             if ($expandArrays) {
-                $decoded = json_decode($rawValue, true);
-                $values = is_array($decoded) ? $decoded : [$rawValue];
+                $decoded = json_decode($row->value, true);
+                $values = is_array($decoded) ? $decoded : [$row->value];
             }
             foreach ($values as $value) {
                 $value = trim((string) $value);
-                if ($value !== '') {
-                    $counts[$value] = ($counts[$value] ?? 0) + 1;
+                $key = $this->normalize($value);
+                $postId = (int) $row->post_id;
+                if ($key !== '' && empty($seenByPost[$postId][$key])) {
+                    $seenByPost[$postId][$key] = true;
+                    $names[$key] = $names[$key] ?? $value;
+                    $counts[$key] = ($counts[$key] ?? 0) + 1;
                 }
             }
         }
         arsort($counts);
-        return $counts;
+
+        $namedCounts = [];
+        foreach ($counts as $key => $count) {
+            $namedCounts[$names[$key]] = $count;
+        }
+
+        return $namedCounts;
     }
 
     private function namedCounts(array $counts)
@@ -396,6 +429,7 @@ class EwerDashboardController extends V5Controller
         $this->whereFieldMatches($query, $this->fields('responding_actors'));
         $this->scopePosts($query);
 
+        $allowedActors = $this->configuredRespondingActors($formId);
         $actorsByPost = [];
         $actorNames = [];
         foreach ($query->get() as $row) {
@@ -411,6 +445,9 @@ class EwerDashboardController extends V5Controller
                     continue;
                 }
                 $key = $this->canonicalActor($value);
+                if (!empty($allowedActors) && !isset($allowedActors[$key])) {
+                    continue;
+                }
                 $actorsByPost[(int) $row->post_id][$key] = true;
                 if (!isset($actorNames[$key])) {
                     $actorNames[$key] = $this->actorName($key, $value);
@@ -437,6 +474,39 @@ class EwerDashboardController extends V5Controller
         }
 
         return $result;
+    }
+
+    private function configuredRespondingActors($formId)
+    {
+        $query = DB::table('form_attributes')
+            ->join('form_stages', 'form_stages.id', '=', 'form_attributes.form_stage_id')
+            ->where('form_stages.form_id', $formId)
+            ->whereIn('form_attributes.input', ['checkbox', 'select', 'radio']);
+        $this->whereFieldMatches($query, $this->fields('responding_actors'));
+
+        $allowed = [];
+        foreach ($query->pluck('form_attributes.options') as $rawOptions) {
+            $options = json_decode($rawOptions, true);
+            if (!is_array($options)) {
+                continue;
+            }
+            foreach ($options as $option) {
+                $candidates = is_array($option)
+                    ? [
+                        $option['name'] ?? null,
+                        $option['value'] ?? null,
+                        $option['label'] ?? null,
+                    ]
+                    : [$option];
+                foreach (array_filter($candidates, function ($candidate) {
+                    return $candidate !== null && trim((string) $candidate) !== '';
+                }) as $candidate) {
+                    $allowed[$this->canonicalActor($candidate)] = true;
+                }
+            }
+        }
+
+        return $allowed;
     }
 
     private function canonicalActor($value)
@@ -745,7 +815,14 @@ class EwerDashboardController extends V5Controller
                 $fieldQuery
                     ->orWhere('form_attributes.key', $identifier)
                     ->orWhere('form_attributes.label', $identifier)
-                    ->orWhere('form_attributes.config', 'like', '%' . $identifier . '%');
+                    // Match only the XLSForm field name. A broad config match also
+                    // catches relevance expressions on dependent questions, which
+                    // makes unrelated values leak into dashboard totals.
+                    ->orWhere(
+                        'form_attributes.config',
+                        'like',
+                        '%"xlsform_name":"' . $identifier . '"%'
+                    );
             }
         });
     }
