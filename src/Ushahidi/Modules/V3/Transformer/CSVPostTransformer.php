@@ -165,10 +165,78 @@ class CSVPostTransformer implements MappingTransformer
                 continue;
             }
 
-            $remappedRecord[$column] = $record[$index];
+            $value = $record[$index];
+            $sourceColumn = $this->columnNames[$index] ?? '';
+
+            if ($this->isKoboGpsColumn($sourceColumn)) {
+                $value = $this->resolveKoboGpsValue($record, $index);
+                $value = $this->parseKoboGpsValue($value);
+            }
+
+            $remappedRecord[$column] = $value;
         }
 
         return $remappedRecord;
+    }
+
+    /**
+     * Kobo stores geopoints as "latitude longitude altitude precision".
+     * Ushahidi point attributes require an associative lat/lon value.
+     */
+    private function parseKoboGpsValue($value)
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return $value;
+        }
+
+        $parts = preg_split('/[\s,]+/', trim($value));
+        if (count($parts) < 2 || !is_numeric($parts[0]) || !is_numeric($parts[1])) {
+            return $value;
+        }
+
+        $lat = (float) $parts[0];
+        $lon = (float) $parts[1];
+        if ($lat < -90 || $lat > 90 || $lon < -180 || $lon > 180) {
+            return $value;
+        }
+
+        return [
+            'lat' => $lat,
+            'lon' => $lon,
+        ];
+    }
+
+    /**
+     * "All versions" Kobo exports suffix duplicate GPS columns (gps_001,
+     * gps_002, ...). If the mapped GPS column is empty for a row, use the
+     * only populated GPS variant. Multiple populated variants are ambiguous
+     * and are deliberately not guessed.
+     */
+    private function resolveKoboGpsValue(array $record, int $mappedIndex)
+    {
+        $mappedValue = $record[$mappedIndex] ?? null;
+        if (is_string($mappedValue) && trim($mappedValue) !== '') {
+            return $mappedValue;
+        }
+
+        $populatedValues = [];
+        foreach ($this->columnNames as $index => $columnName) {
+            if (!$this->isKoboGpsColumn($columnName)) {
+                continue;
+            }
+
+            $value = $record[$index] ?? null;
+            if (is_string($value) && trim($value) !== '') {
+                $populatedValues[] = $value;
+            }
+        }
+
+        return count($populatedValues) === 1 ? $populatedValues[0] : $mappedValue;
+    }
+
+    private function isKoboGpsColumn($columnName): bool
+    {
+        return is_string($columnName) && preg_match('/^gps(?:_\d+)?$/i', trim($columnName)) === 1;
     }
 
     /**
