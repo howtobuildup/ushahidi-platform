@@ -429,7 +429,7 @@ class EwerDashboardController extends V5Controller
         $this->whereFieldMatches($query, $this->fields('responding_actors'));
         $this->scopePosts($query);
 
-        $allowedActors = $this->configuredRespondingActors($formId);
+        $configuredActors = $this->configuredRespondingActorLabels($formId);
         $actorsByPost = [];
         $actorNames = [];
         foreach ($query->get() as $row) {
@@ -445,12 +445,13 @@ class EwerDashboardController extends V5Controller
                     continue;
                 }
                 $key = $this->canonicalActor($value);
-                if (!empty($allowedActors) && !isset($allowedActors[$key])) {
+                if (!empty($configuredActors) && !isset($configuredActors[$key])) {
                     continue;
                 }
                 $actorsByPost[(int) $row->post_id][$key] = true;
                 if (!isset($actorNames[$key])) {
-                    $actorNames[$key] = $this->actorName($key, $value);
+                    $actorNames[$key] = $configuredActors[$key]
+                        ?? $this->actorName($key, $value);
                 }
             }
         }
@@ -476,7 +477,7 @@ class EwerDashboardController extends V5Controller
         return $result;
     }
 
-    private function configuredRespondingActors($formId)
+    private function configuredRespondingActorLabels($formId)
     {
         $query = DB::table('form_attributes')
             ->join('form_stages', 'form_stages.id', '=', 'form_attributes.form_stage_id')
@@ -484,29 +485,47 @@ class EwerDashboardController extends V5Controller
             ->whereIn('form_attributes.input', ['checkbox', 'select', 'radio']);
         $this->whereFieldMatches($query, $this->fields('responding_actors'));
 
-        $allowed = [];
+        $actors = [];
         foreach ($query->pluck('form_attributes.options') as $rawOptions) {
-            $options = json_decode($rawOptions, true);
-            if (!is_array($options)) {
+            $actors = array_merge($actors, $this->respondingActorOptionLabels($rawOptions));
+        }
+
+        return $actors;
+    }
+
+    private function respondingActorOptionLabels($rawOptions)
+    {
+        $options = is_string($rawOptions) ? json_decode($rawOptions, true) : $rawOptions;
+        if (!is_array($options)) {
+            return [];
+        }
+
+        $actors = [];
+        foreach ($options as $option) {
+            $label = is_array($option)
+                ? ($option['label'] ?? $option['tag'] ?? $option['name'] ?? $option['value'] ?? null)
+                : $option;
+            if ($label === null || trim((string) $label) === '') {
                 continue;
             }
-            foreach ($options as $option) {
-                $candidates = is_array($option)
-                    ? [
-                        $option['name'] ?? null,
-                        $option['value'] ?? null,
-                        $option['label'] ?? null,
-                    ]
-                    : [$option];
-                foreach (array_filter($candidates, function ($candidate) {
-                    return $candidate !== null && trim((string) $candidate) !== '';
-                }) as $candidate) {
-                    $allowed[$this->canonicalActor($candidate)] = true;
-                }
+
+            $candidates = is_array($option)
+                ? [
+                    $option['name'] ?? null,
+                    $option['value'] ?? null,
+                    $option['id'] ?? null,
+                    $option['label'] ?? null,
+                    $option['tag'] ?? null,
+                ]
+                : [$option];
+            foreach (array_filter($candidates, function ($candidate) {
+                return $candidate !== null && trim((string) $candidate) !== '';
+            }) as $candidate) {
+                $actors[$this->canonicalActor($candidate)] = trim((string) $label);
             }
         }
 
-        return $allowed;
+        return $actors;
     }
 
     private function canonicalActor($value)
