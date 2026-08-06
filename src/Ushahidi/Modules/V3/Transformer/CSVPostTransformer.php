@@ -90,10 +90,16 @@ class CSVPostTransformer implements MappingTransformer
             $record[$key] = trim((string) $val);
         }
 
+        $submissionTime = $this->resolveKoboSubmissionTime($record);
+
         // Transform values according to specs in column names
         $this->transformValues($record);
 
         $record = $this->remapRecordColumns($record);
+
+        if (empty($record['post_date']) && $submissionTime) {
+            $record['post_date'] = $submissionTime;
+        }
 
         // Remove empty values
         foreach ($record as $key => $val) {
@@ -237,6 +243,33 @@ class CSVPostTransformer implements MappingTransformer
     private function isKoboGpsColumn($columnName): bool
     {
         return is_string($columnName) && preg_match('/^gps(?:_\d+)?$/i', trim($columnName)) === 1;
+    }
+
+    /**
+     * Kobo's _submission_time is the original server submission timestamp.
+     * Preserve it as the post date so imported reports keep their historical
+     * position in timelines instead of appearing on the CSV upload date.
+     */
+    private function resolveKoboSubmissionTime(array $record): ?\DateTimeImmutable
+    {
+        foreach ($this->columnNames as $index => $columnName) {
+            if (!is_string($columnName) || strtolower(trim($columnName)) !== '_submission_time') {
+                continue;
+            }
+
+            $value = trim((string) ($record[$index] ?? ''));
+            if ($value === '') {
+                return null;
+            }
+
+            try {
+                return new \DateTimeImmutable($value, new \DateTimeZone('UTC'));
+            } catch (\Exception $exception) {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     /**

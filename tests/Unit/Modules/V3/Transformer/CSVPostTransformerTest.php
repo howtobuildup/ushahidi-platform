@@ -77,4 +77,50 @@ class CSVPostTransformerTest extends TestCase
 
         $this->assertArrayNotHasKey('location', $result['values']);
     }
+
+    public function testItUsesKoboSubmissionTimeAsTheImportedPostDate()
+    {
+        $transformer = $this->makeTransformer(
+            ['_submission_time', 'title'],
+            [0 => null, 1 => 'title']
+        );
+
+        $result = $transformer->interact([
+            '2026-05-27 12:47:45',
+            'Imported incident',
+        ]);
+
+        $this->assertInstanceOf(\DateTimeImmutable::class, $result['post_date']);
+        $this->assertSame('2026-05-27 12:47:45 UTC', $result['post_date']->format('Y-m-d H:i:s T'));
+    }
+
+    public function testItPreservesAnExplicitlyMappedPostDate()
+    {
+        $transformer = $this->makeTransformer(
+            ['_submission_time', 'post_date'],
+            [0 => null, 1 => 'post_date']
+        );
+
+        $result = $transformer->interact([
+            '2026-05-27 12:47:45',
+            '2026-06-01 08:30:00',
+        ]);
+
+        $this->assertSame('2026-06-01 08:30:00', $result['post_date']);
+    }
+
+    public function testItIgnoresAnInvalidKoboSubmissionTime()
+    {
+        $transformer = $this->makeTransformer(
+            ['_submission_time', 'title'],
+            [0 => null, 1 => 'title']
+        );
+
+        $result = $transformer->interact([
+            'not a date',
+            'Imported incident',
+        ]);
+
+        $this->assertArrayNotHasKey('post_date', $result);
+    }
 }
