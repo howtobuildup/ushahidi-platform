@@ -90,10 +90,16 @@ class CSVPostTransformer implements MappingTransformer
             $record[$key] = trim((string) $val);
         }
 
+        $importedPostDate = $this->resolveKoboPostDate($record);
+
         // Transform values according to specs in column names
         $this->transformValues($record);
 
         $record = $this->remapRecordColumns($record);
+
+        if (empty($record['post_date']) && $importedPostDate) {
+            $record['post_date'] = $importedPostDate;
+        }
 
         // Remove empty values
         foreach ($record as $key => $val) {
@@ -237,6 +243,35 @@ class CSVPostTransformer implements MappingTransformer
     private function isKoboGpsColumn($columnName): bool
     {
         return is_string($columnName) && preg_match('/^gps(?:_\d+)?$/i', trim($columnName)) === 1;
+    }
+
+    /**
+     * Kobo's end value records when the monitor finished the form. Prefer it
+     * over the server submission time, which can be delayed by offline sync.
+     * Use today only as a date-only fallback when end is unavailable.
+     */
+    private function resolveKoboPostDate(array $record): ?\DateTimeImmutable
+    {
+        foreach (['end', 'today'] as $preferredColumn) {
+            foreach ($this->columnNames as $index => $columnName) {
+                if (!is_string($columnName) || strtolower(trim($columnName)) !== $preferredColumn) {
+                    continue;
+                }
+
+                $value = trim((string) ($record[$index] ?? ''));
+                if ($value === '') {
+                    continue;
+                }
+
+                try {
+                    return new \DateTimeImmutable($value, new \DateTimeZone('UTC'));
+                } catch (\Exception $exception) {
+                    continue;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
