@@ -63,9 +63,10 @@ interface FormAttributeRepository extends
 
     /**
      * @param  array $include_attributes
+     * @param  array $form_ids
      * @return \Ushahidi\Core\Entity\FormAttribute[]
      */
-    public function getExportAttributes(array $include_attributes = null);
+    public function getExportAttributes(array $include_attributes = null, array $form_ids = null);
 
     /**
      * @param int $form_id

@@ -120,7 +120,17 @@ class ExportPost implements Usecase
             $this->postExportRepository->setSearchParams($data);
 
             // get the form attributes for the export
-            $attributes = $this->formAttributeRepository->getExportAttributes($data->include_attributes);
+            // Keep the export schema scoped to the surveys selected for this job.
+            // Mixing attributes from every survey causes duplicate XLSForm keys to
+            // overwrite one another and leaves valid columns blank in the CSV.
+            $formIds = $data->form;
+            if ($formIds !== null && !is_array($formIds)) {
+                $formIds = [$formIds];
+            }
+            $attributes = $this->formAttributeRepository->getExportAttributes(
+                $data->include_attributes,
+                $formIds
+            );
             $keyAttributes = $this->getAttributesWithKeys($attributes);
 
             /**

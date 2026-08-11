@@ -175,12 +175,11 @@ class EloquentPostRepository implements PostRepository
         if ($search_fields->district()) {
             $district = strtolower(trim($search_fields->district()));
             $districtFields = [
+                'district',
                 '_2a_City_where_incidence_occurred',
                 '_2b_City_where_incidence_occurred',
                 'District where incidence occurred',
                 'City where incidence occurred',
-                'State where incidence occurred',
-                'Region where incidence occurred',
             ];
             $query->whereExists(function ($districtQuery) use ($district, $districtFields) {
                 $districtQuery->select(DB::raw(1))

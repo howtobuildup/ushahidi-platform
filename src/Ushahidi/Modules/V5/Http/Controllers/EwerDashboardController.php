@@ -49,7 +49,10 @@ class EwerDashboardController extends V5Controller
         $categories = $this->postValues($formId, $this->fields('incident_type'));
         $postCategories = $this->singleValueByPost($categories);
         $districtValues = $this->postValues($formId, $this->fields('district'));
-        $postDistricts = $this->singleValueByPost($districtValues);
+        $postDistricts = $this->projectDistricts(
+            $this->singleValueByPost($districtValues),
+            $this->districtOptions($formId)
+        );
         $districtOptions = $this->namedCounts($this->counts($postDistricts));
         $districtFilter = $this->normalizeDistrictFilter($request->query('district'));
         if ($districtFilter) {
@@ -62,7 +65,10 @@ class EwerDashboardController extends V5Controller
         $categories = $this->postValues($formId, $this->fields('incident_type'));
         $postCategories = $this->singleValueByPost($categories);
         $districtValues = $this->postValues($formId, $this->fields('district'));
-        $postDistricts = $this->singleValueByPost($districtValues);
+        $postDistricts = $this->projectDistricts(
+            $this->singleValueByPost($districtValues),
+            $this->districtOptions($formId)
+        );
         $responses = $this->postValues($formId, $this->fields('response_happened'));
         $escalations = $this->postValues($formId, $this->fields('escalation_indicators'));
 
@@ -318,7 +324,7 @@ class EwerDashboardController extends V5Controller
     {
         $ids = [];
         foreach ($postDistricts as $postId => $value) {
-            if ($this->normalize($value) === $district) {
+            if ($this->normalizeDistrict($value) === $district) {
                 $ids[] = (int) $postId;
             }
         }
@@ -856,8 +862,78 @@ class EwerDashboardController extends V5Controller
 
     private function normalizeDistrictFilter($value)
     {
-        $value = $this->normalize($value);
+        $value = $this->normalizeDistrict($value);
         return $value && $value !== 'all' ? $value : null;
+    }
+
+    private function districtOptions($formId)
+    {
+        $attribute = DB::table('form_attributes')
+            ->join('form_stages', 'form_stages.id', '=', 'form_attributes.form_stage_id')
+            ->where('form_stages.form_id', $formId)
+            ->where(function ($query) {
+                $query->where('form_attributes.key', 'district')
+                    ->orWhere('form_attributes.label', 'District where incidence occurred');
+            })
+            ->orderByRaw("CASE WHEN form_attributes.key = 'district' THEN 0 ELSE 1 END")
+            ->value('form_attributes.options');
+
+        $options = json_decode((string) $attribute, true);
+        if (!is_array($options)) {
+            return [];
+        }
+
+        $districts = [];
+        foreach ($options as $option) {
+            if (is_array($option)) {
+                $name = $option['name'] ?? $option['value'] ?? null;
+                $label = $option['label'] ?? $name;
+            } else {
+                $name = $option;
+                $label = $option;
+            }
+            if ($name === null || trim((string) $name) === '') {
+                continue;
+            }
+            $label = trim((string) $label) ?: trim((string) $name);
+            $districts[$this->normalizeDistrict($name)] = $label;
+            $districts[$this->normalizeDistrict($label)] = $label;
+        }
+
+        return $districts;
+    }
+
+    private function projectDistricts(array $postDistricts, array $districtOptions)
+    {
+        // Older surveys may not expose choices in the attribute options. Preserve
+        // their existing behaviour rather than hiding all district data.
+        if (!$districtOptions) {
+            return $postDistricts;
+        }
+
+        $districts = [];
+        foreach ($postDistricts as $postId => $district) {
+            $key = $this->normalizeDistrict($district);
+            if (isset($districtOptions[$key])) {
+                $districts[$postId] = $districtOptions[$key];
+            }
+        }
+
+        return $districts;
+    }
+
+    private function normalizeDistrict($value)
+    {
+        $value = $this->normalize($value);
+        $aliases = [
+            'afgoi' => 'afgoye',
+            'afgooye' => 'afgoye',
+            'beledweyne' => 'beletwein',
+            'beletweyne' => 'beletwein',
+            'las_anod' => 'laas_anod',
+        ];
+
+        return $aliases[$value] ?? $value;
     }
 
     private function normalize($value)
@@ -873,12 +949,11 @@ class EwerDashboardController extends V5Controller
                 'Incidence type',
             ],
             'district' => [
+                'district',
                 '_2a_City_where_incidence_occurred',
                 '_2b_City_where_incidence_occurred',
                 'District where incidence occurred',
                 'City where incidence occurred',
-                'State where incidence occurred',
-                'Region where incidence occurred',
             ],
             'response_happened' => [
                 '_10_Has_any_response_happened',

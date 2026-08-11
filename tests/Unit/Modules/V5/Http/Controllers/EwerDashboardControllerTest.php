@@ -3,6 +3,7 @@
 namespace Ushahidi\Tests\Unit\Modules\V5\Http\Controllers;
 
 use ReflectionMethod;
+use ReflectionClass;
 use Ushahidi\Modules\V5\Http\Controllers\EwerDashboardController;
 use Ushahidi\Tests\TestCase;
 
@@ -25,7 +26,7 @@ class EwerDashboardControllerTest extends TestCase
             ],
         ]);
 
-        $controller = new EwerDashboardController();
+        $controller = $this->controller();
         $method = new ReflectionMethod($controller, 'respondingActorOptionLabels');
         $method->setAccessible(true);
         $actors = $method->invoke($controller, $options);
@@ -43,7 +44,7 @@ class EwerDashboardControllerTest extends TestCase
 
     public function testLegacyStringOptionsRemainAvailable()
     {
-        $controller = new EwerDashboardController();
+        $controller = $this->controller();
         $method = new ReflectionMethod($controller, 'respondingActorOptionLabels');
         $method->setAccessible(true);
 
@@ -51,5 +52,31 @@ class EwerDashboardControllerTest extends TestCase
             ['police' => 'Police'],
             $method->invoke($controller, json_encode(['Police']))
         );
+    }
+
+    public function testProjectDistrictsIncludeAfgoyeAliasesAndExcludeNonProjectDistricts()
+    {
+        $controller = $this->controller();
+        $method = new ReflectionMethod($controller, 'projectDistricts');
+        $method->setAccessible(true);
+
+        $districts = $method->invoke($controller, [
+            1 => 'Afgoi',
+            2 => 'Borama',
+            3 => 'Bardere',
+        ], [
+            'afgoye' => 'Afgoye',
+            'bardere' => 'Bardere',
+        ]);
+
+        $this->assertSame([
+            1 => 'Afgoye',
+            3 => 'Bardere',
+        ], $districts);
+    }
+
+    private function controller()
+    {
+        return (new ReflectionClass(EwerDashboardController::class))->newInstanceWithoutConstructor();
     }
 }

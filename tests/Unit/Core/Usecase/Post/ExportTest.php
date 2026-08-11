@@ -133,7 +133,7 @@ class ExportTest extends TestCase
                 [1]
             );
         $this->formAttributeRepository->shouldReceive('getExportAttributes')->once()
-            ->with([])
+            ->with([], [1])
             ->andReturn([
                 [
                     'label' => 'Post ID',

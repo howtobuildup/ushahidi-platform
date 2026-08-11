@@ -303,13 +303,14 @@ class AttributeRepository extends OhanzeeRepository implements
 
     /**
      * @param $include_attributes (optional)
+     * @param $form_ids (optional)
      * @return array
      * Returns a list of attributes with the relevant fields.
      * This is mainly to be used in the post exporter where we need a consistent list of attributes
      * that does not directly depend on the rows we are fetching at the time but on the
      * list of form ids that match a specific query
      */
-    public function getExportAttributes(array $include_attributes = null)
+    public function getExportAttributes(array $include_attributes = null, array $form_ids = null)
     {
         $sql = "SELECT DISTINCT form_attributes.*,
 			form_stages.priority as form_stage_priority,
@@ -320,10 +321,16 @@ class AttributeRepository extends OhanzeeRepository implements
         if (!empty($include_attributes)) {
             $sql .= " AND form_attributes.key IN :form_attributes ";
         }
+        if (!empty($form_ids)) {
+            $sql .= " AND forms.id IN :form_ids ";
+        }
         $sql .= "ORDER BY forms.id, form_stages.priority, form_attributes.priority ";
-        $results = DB::query(Database::SELECT, $sql)
-            ->bind(':form_attributes', $include_attributes)
-            ->execute($this->db());
+        $query = DB::query(Database::SELECT, $sql)
+            ->bind(':form_attributes', $include_attributes);
+        if (!empty($form_ids)) {
+            $query->bind(':form_ids', $form_ids);
+        }
+        $results = $query->execute($this->db());
         $attributes = $results->as_array();
         $native = [
             [
