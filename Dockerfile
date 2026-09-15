@@ -5,20 +5,42 @@ LABEL org.opencontainers.image.source="https://github.com/ushahidi/platform"
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
 COPY docker-php-ext-enable /usr/local/bin/
-RUN apt-key del B188E2B695BD4743 2>/dev/null || true && \
-    curl -sSLo /tmp/debsuryorg-archive-keyring.deb https://packages.sury.org/debsuryorg-archive-keyring.deb && \
-    dpkg -i /tmp/debsuryorg-archive-keyring.deb && \
-    rm /tmp/debsuryorg-archive-keyring.deb && \
-    apt-get update
-RUN apt-get install -y php-pear php${PHP_MAJOR_VERSION}-dev
-RUN pecl channel-update pecl.php.net
-RUN pecl channel-update pecl.php.net
-RUN pecl install xdebug-3.1.6 
-ENV PHP_INI_DIR=/etc/php/${PHP_MAJOR_VERSION}/fpm
-RUN docker-php-ext-enable xdebug
+
+# Staged rather than dropped straight into conf.d: it carries
+# "zend_extension=xdebug", so PHP would fail to load the extension on every
+# request if the ini were present without xdebug itself being built.
+COPY docker-php-ext-xdebug.ini /usr/local/share/docker-php-ext-xdebug.ini
+
+# Xdebug is a development tool and is not built into the image by default.
+# Compiling it needs php-pear and the PHP dev headers, which drag in packages
+# from Debian 11's security pool. Bullseye is end-of-life and those files are
+# being withdrawn from the mirrors, so installing it unconditionally fails the
+# build on a mirror's schedule rather than on anything in this repository.
+#
+# Build with xdebug for local debugging:
+#   docker compose build --build-arg INSTALL_XDEBUG=true api
+ARG INSTALL_XDEBUG=false
+RUN if [ "$INSTALL_XDEBUG" = "true" ]; then \
+        set -eux; \
+        { apt-key del B188E2B695BD4743 2>/dev/null || true; }; \
+        curl -sSLo /tmp/debsuryorg-archive-keyring.deb https://packages.sury.org/debsuryorg-archive-keyring.deb; \
+        dpkg -i /tmp/debsuryorg-archive-keyring.deb; \
+        rm /tmp/debsuryorg-archive-keyring.deb; \
+        apt-get update; \
+        apt-get install -y php-pear "php${PHP_MAJOR_VERSION}-dev"; \
+        pecl channel-update pecl.php.net; \
+        pecl install xdebug-3.1.6; \
+        PHP_INI_DIR="/etc/php/${PHP_MAJOR_VERSION}/fpm" docker-php-ext-enable xdebug; \
+        PHP_INI_DIR="/etc/php/${PHP_MAJOR_VERSION}/cli" docker-php-ext-enable xdebug; \
+        cp /usr/local/share/docker-php-ext-xdebug.ini \
+            "/etc/php/${PHP_MAJOR_VERSION}/fpm/conf.d/docker-php-ext-xdebug.ini"; \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# Set unconditionally so the image carries the same value whether or not xdebug
+# was built, matching what the previous always-on install left behind.
 ENV PHP_INI_DIR=/etc/php/${PHP_MAJOR_VERSION}/cli
-RUN docker-php-ext-enable xdebug
-COPY docker-php-ext-xdebug.ini /etc/php/${PHP_MAJOR_VERSION}/fpm/conf.d
+
 COPY docker/php-uploads.ini /etc/php/${PHP_MAJOR_VERSION}/fpm/conf.d
 
 WORKDIR /var/www
