@@ -16,6 +16,8 @@ use Ushahidi\Modules\V5\Events\PostCreatedEvent;
 use Ushahidi\Modules\V5\Events\PostUpdatedEvent;
 use Ushahidi\Modules\V5\Http\Resources\PostResource as OldPostResource;
 use Ushahidi\Modules\V5\Models\Post\Post;
+use Ushahidi\Modules\V5\Models\Translation;
+use Ushahidi\Modules\V5\Models\Survey;
 use Ushahidi\Modules\V5\Models\Post\PostStatus;
 use Ushahidi\Modules\V5\Exceptions\V5Exception;
 use Illuminate\Support\Facades\DB;
@@ -54,6 +56,18 @@ class PostController extends V5Controller
     // It uses methods from several traits to check access:
     // - `AdminAccess` to check if the user has admin access
     use AdminAccess;
+
+    /** Phrase the client must echo back before a delete-all is accepted. */
+    private const DELETE_ALL_CONFIRMATION = 'DELETE ALL';
+
+    /** Posts removed per delete-all request when the caller does not say. */
+    private const DELETE_ALL_BATCH_LIMIT = 500;
+
+    /** Upper bound a caller may ask for in one delete-all request. */
+    private const DELETE_ALL_MAX_LIMIT = 2000;
+
+    /** Posts deleted per transaction inside one request. */
+    private const DELETE_ALL_CHUNK = 100;
 
 
     /**
@@ -351,6 +365,111 @@ class PostController extends V5Controller
 
         return response()->json(['status' => 'completed'], 200);
     }
+
+    /**
+     * Delete every post belonging to the given surveys.
+     *
+     * Admin only, and guarded by a confirmation phrase because it is not
+     * recoverable. The delete is bounded: each call removes at most
+     * DELETE_ALL_BATCH_LIMIT posts and reports how many are still outstanding,
+     * so the caller loops until "remaining" reaches zero. That keeps every
+     * request short enough to survive a proxy read timeout instead of being
+     * cut off half way through.
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function deleteAllByForm(Request $request)
+    {
+        $user = service('authorizer.post')->getUser();
+        if (!$this->isUserAdmin($user)) {
+            return self::make403('Only an administrator can delete all data for a survey.');
+        }
+
+        $validation = ValidatorRunner::runValidation(
+            $request->input(),
+            [
+                'form_ids' => ['required', 'array', 'min:1'],
+                'form_ids.*' => ['required', 'integer'],
+                'confirm' => ['required', 'string', 'in:' . self::DELETE_ALL_CONFIRMATION],
+                'limit' => ['sometimes', 'integer', 'min:1', 'max:' . self::DELETE_ALL_MAX_LIMIT],
+            ],
+            [
+                'form_ids.required' => 'Select at least one survey to delete data from.',
+                'confirm.in' => 'The confirmation phrase did not match.',
+                'limit.max' => 'A single request may delete at most '
+                    . self::DELETE_ALL_MAX_LIMIT . ' posts.',
+                'limit.min' => 'The limit must be at least 1.',
+            ]
+        );
+        if (!$validation->success()) {
+            return self::make422($validation->getErrors());
+        }
+
+        $requested_ids = array_values(array_unique(array_map('intval', $request->input('form_ids'))));
+
+        // A client's saved filters can still name a survey that has since been
+        // deleted. Ignore those rather than refusing the whole request, but say
+        // so in the response, and fail only if nothing usable is left.
+        $form_ids = Survey::whereIn('id', $requested_ids)
+            ->pluck('id')
+            ->map(function ($id) {
+                return (int) $id;
+            })
+            ->all();
+        $ignored_form_ids = array_values(array_diff($requested_ids, $form_ids));
+
+        if (empty($form_ids)) {
+            return self::make422(['None of the selected surveys exist.']);
+        }
+
+        $limit = (int) $request->input('limit', self::DELETE_ALL_BATCH_LIMIT);
+        $deleted = 0;
+
+        try {
+            while ($deleted < $limit) {
+                $ids = Post::whereIn('form_id', $form_ids)
+                    ->orderBy('id')
+                    ->limit(min(self::DELETE_ALL_CHUNK, $limit - $deleted))
+                    ->pluck('id')
+                    ->all();
+
+                if (empty($ids)) {
+                    break;
+                }
+
+                // Every child table cascades on posts.id, but translations are a
+                // polymorphic relation with no foreign key, so clear those first.
+                $removed = DB::transaction(function () use ($ids) {
+                    Translation::where('translatable_type', 'post')
+                        ->whereIn('translatable_id', $ids)
+                        ->delete();
+
+                    return Post::whereIn('id', $ids)->delete();
+                });
+
+                // Guard against spinning on rows we selected but cannot remove:
+                // the next pass would fetch the same ids and delete nothing again.
+                // Stop instead and let "remaining" report what was left behind.
+                if ($removed < 1) {
+                    break;
+                }
+
+                $deleted += $removed;
+            }
+        } catch (\Exception $e) {
+            return self::make500($e->getMessage());
+        }
+
+        return response()->json([
+            'result' => [
+                'deleted' => $deleted,
+                'remaining' => Post::whereIn('form_id', $form_ids)->count(),
+                'form_ids' => $form_ids,
+                'ignored_form_ids' => $ignored_form_ids,
+            ],
+        ], 200);
+    } //end deleteAllByForm()
 
     /**
      * Display the specified resource.

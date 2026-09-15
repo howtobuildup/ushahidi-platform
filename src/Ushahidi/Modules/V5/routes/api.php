@@ -125,6 +125,7 @@ $router->group([
         ],
         function () use ($router) {
             $router->post('/bulk', 'PostController@bulkOperation');
+            $router->post('/delete-all', 'PostController@deleteAllByForm');
             $router->put('/{id}', 'PostController@update');
             $router->patch('/{id}', 'PostController@patch');
             $router->delete('/{id}', 'PostController@delete');
