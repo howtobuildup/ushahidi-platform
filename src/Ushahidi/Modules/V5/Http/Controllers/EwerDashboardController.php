@@ -75,12 +75,12 @@ class EwerDashboardController extends V5Controller
         $incidentMix = $this->incidentMix($postCategories);
         $incidentCategories = $this->incidentCategories($postCategories, $this->visiblePostIds);
         $districts = $this->counts($postDistricts);
-        $responsePostIds = $this->matchingPostIds($responses, ['yes']);
+        $responsePostIds = $this->affirmativePostIds($responses);
         $respondingActors = $this->respondingActorRates(
             $formId,
             $responsePostIds
         );
-        $escalatingPostIds = $this->matchingPostIds($escalations, ['yes']);
+        $escalatingPostIds = $this->affirmativePostIds($escalations);
         $escalationPostIds = $this->allPostIds($escalations);
 
         $districtTypes = [];
@@ -277,16 +277,34 @@ class EwerDashboardController extends V5Controller
         return array_values($categories);
     }
 
-    private function matchingPostIds($values, array $accepted)
+    /**
+     * Posts whose answer to a yes/no question was yes.
+     *
+     * The XLSForm gives each incident branch its own choice list, and the
+     * climate branch names its options `yes_climate` and `no_climate` rather
+     * than `yes` and `no`. Testing against a global `yes` literal matched none
+     * of them, so the climate response gauge read 0% against 46 records that
+     * had in fact been answered.
+     *
+     * Matching the stem rather than listing each branch suffix keeps a branch
+     * added later from quietly reintroducing the same defect.
+     */
+    private function affirmativePostIds($values)
     {
-        $accepted = array_map('strtolower', $accepted);
         $ids = [];
         foreach ($values as $value) {
-            if (in_array(strtolower(trim((string) $value->value)), $accepted, true)) {
+            if ($this->isAffirmative($value->value)) {
                 $ids[(int) $value->post_id] = true;
             }
         }
         return array_keys($ids);
+    }
+
+    private function isAffirmative($value)
+    {
+        $normalized = $this->normalize($value);
+
+        return $normalized === 'yes' || strpos($normalized, 'yes_') === 0;
     }
 
     private function allPostIds($values)
@@ -673,7 +691,7 @@ class EwerDashboardController extends V5Controller
 
     private function responseCoverage(array $postCategories, $responses)
     {
-        $responded = array_fill_keys($this->matchingPostIds($responses, ['yes']), true);
+        $responded = array_fill_keys($this->affirmativePostIds($responses), true);
         $totals = ['conflict' => 0, 'gbv' => 0, 'social' => 0, 'warning' => 0, 'climate' => 0];
         $responseTotals = $totals;
 

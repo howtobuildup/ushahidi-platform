@@ -75,6 +75,43 @@ class EwerDashboardControllerTest extends TestCase
         ], $districts);
     }
 
+    public function testAffirmativePostIdsAcceptBranchSuffixedChoiceNames()
+    {
+        $controller = $this->controller();
+        $method = new ReflectionMethod($controller, 'affirmativePostIds');
+        $method->setAccessible(true);
+
+        // The climate branch names its options yes_climate and no_climate,
+        // so matching a bare "yes" counted none of them and the response
+        // gauge read 0% against records that had in fact been answered.
+        $values = [
+            (object) ['post_id' => 1, 'value' => 'yes'],
+            (object) ['post_id' => 2, 'value' => 'Yes'],
+            (object) ['post_id' => 3, 'value' => 'yes_climate'],
+            (object) ['post_id' => 4, 'value' => 'no'],
+            (object) ['post_id' => 5, 'value' => 'no_climate'],
+            (object) ['post_id' => 6, 'value' => 'No'],
+        ];
+
+        $this->assertSame([1, 2, 3], $method->invoke($controller, $values));
+    }
+
+    public function testAffirmativePostIdsRejectValuesThatMerelyBeginWithYes()
+    {
+        $controller = $this->controller();
+        $method = new ReflectionMethod($controller, 'affirmativePostIds');
+        $method->setAccessible(true);
+
+        // Only the choice-name stem counts. Free text that happens to start
+        // with the same letters is not an answer of yes.
+        $values = [
+            (object) ['post_id' => 1, 'value' => 'yesterday'],
+            (object) ['post_id' => 2, 'value' => 'Yes, but only partially'],
+        ];
+
+        $this->assertSame([2], $method->invoke($controller, $values));
+    }
+
     private function controller()
     {
         return (new ReflectionClass(EwerDashboardController::class))->newInstanceWithoutConstructor();
