@@ -4,6 +4,7 @@ namespace Ushahidi\Modules\V3\Http\Controllers\API\CSV;
 
 use Illuminate\Http\Request;
 use Ushahidi\Modules\V3\Http\Controllers\RESTController;
+use Ushahidi\Core\Concerns\ClaimsCsvImport;
 
 /**
  * Ushahidi API CSV Import
@@ -14,6 +15,8 @@ use Ushahidi\Modules\V3\Http\Controllers\RESTController;
  */
 class CSVImportController extends RestController
 {
+    use ClaimsCsvImport;
+
     protected function getResource()
     {
         return 'posts';
@@ -31,6 +34,16 @@ class CSVImportController extends RestController
 
         // Get payload from CSV repo
         $csv = service('repository.csv')->get($id);
+
+        // Claim the upload before reading a byte, so a retried request cannot
+        // start a second pass over a file that is still being imported.
+        if (!$this->claimCsvImport($id)) {
+            return response()->json([
+                'error' => 409,
+                'message' => 'This file is already being imported. '
+                    . 'Check the import results before trying again.',
+            ], 409);
+        }
 
         $fs = service('tool.filesystem');
         $reader = service('filereader.csv');

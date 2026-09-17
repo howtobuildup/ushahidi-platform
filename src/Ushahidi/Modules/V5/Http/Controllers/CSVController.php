@@ -14,12 +14,14 @@ use Ushahidi\Modules\V5\Requests\CSVRequest;
 use Ushahidi\Modules\V5\Models\CSV;
 use Ushahidi\Core\Exception\NotFoundException;
 use Ushahidi\Core\Concerns\Event;
+use Ushahidi\Core\Concerns\ClaimsCsvImport;
 use Ushahidi\Modules\V3\Listener\Import;
 
 class CSVController extends V5Controller
 {
    // Use Event trait to trigger events
     use Event;
+    use ClaimsCsvImport;
 
     /**
      * Display the specified resource.
@@ -118,6 +120,18 @@ class CSVController extends V5Controller
         // Get payload from CSV repo
         $csv = service('repository.csv')->get($id);
 
+        // Claim this upload before reading a byte. The import runs inline, so a
+        // client that gives up and retries - which is what a proxy timeout
+        // invites - would otherwise start a second pass over the same file
+        // while the first is still writing posts.
+        if (!$this->claimCsvImport($id)) {
+            return response()->json([
+                'error' => 409,
+                'message' => 'This file is already being imported. '
+                    . 'Check the import results before trying again.',
+            ], 409);
+        }
+
         $fs = service('tool.filesystem');
         $reader = service('filereader.csv');
         $transformer = service('transformer.csv');
@@ -135,11 +149,6 @@ class CSVController extends V5Controller
         $transformer->setFixedValues($csv->fixed ?: []);
 
         $new_status = 'PENDING';
-        $csv->setState([
-            'status' => $new_status
-        ]);
-
-        service('repository.csv')->update($csv);
         $repo = service('repository.post');
         $this->setEmitter(new \League\Event\Emitter);
         $this->setEvent("ImportPosts");

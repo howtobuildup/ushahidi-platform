@@ -29,6 +29,7 @@ class CSV extends StaticEntity
     protected $status;
     protected $errors;
     protected $processed;
+    protected $skipped;
     protected $collection_id;
 
     // DataTransformer
@@ -44,6 +45,7 @@ class CSV extends StaticEntity
             'status'       => 'string',
             'errors'       => 'string',
             'processed'    => 'string',
+            'skipped'      => 'int',
             'created_ids'  => 'string',
             'collection_id'=> 'int',
             'size'         => 'int',
