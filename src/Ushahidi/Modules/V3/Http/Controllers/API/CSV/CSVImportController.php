@@ -5,6 +5,7 @@ namespace Ushahidi\Modules\V3\Http\Controllers\API\CSV;
 use Illuminate\Http\Request;
 use Ushahidi\Modules\V3\Http\Controllers\RESTController;
 use Ushahidi\Core\Concerns\ClaimsCsvImport;
+use Ushahidi\Modules\V3\Jobs\ImportCsvJob;
 
 /**
  * Ushahidi API CSV Import
@@ -24,19 +25,8 @@ class CSVImportController extends RestController
 
     public function store(Request $request, $id = null)
     {
-        /**
-         * Step two of import.
-         * Support all line endings without manually specifying it
-         * (primarily added because of OS9 line endings which do not work by default )
-         */
-        ini_set('auto_detect_line_endings', 1);
-        set_time_limit(600);
-
-        // Get payload from CSV repo
-        $csv = service('repository.csv')->get($id);
-
-        // Claim the upload before reading a byte, so a retried request cannot
-        // start a second pass over a file that is still being imported.
+        // Claim the upload before doing anything else, so a retried request
+        // cannot start a second pass over a file that is already importing.
         if (!$this->claimCsvImport($id)) {
             return response()->json([
                 'error' => 409,
@@ -45,30 +35,22 @@ class CSVImportController extends RestController
             ], 409);
         }
 
-        $fs = service('tool.filesystem');
-        $reader = service('filereader.csv');
-        $transformer = service('transformer.csv');
+        // Confirm the upload exists before queueing work against it.
+        $csv = service('repository.csv')->get($id);
 
-        // Read file
-        $file = new \SplTempFileObject();
-        $contents = $fs->read($csv->filename);
-        $file->fwrite($contents);
+        // Queued rather than run here: a few hundred rows takes tens of
+        // seconds, which leaves the browser on a spinner and the request
+        // exposed to anything that retries it. The results screen already
+        // polls the csv record for status.
+        $user = service('session')->getUser();
 
-        // Get records
-        // @todo read up to a sensible offset and process the rest later
-        $records = $reader->process($file);
+        dispatch(new ImportCsvJob($csv->id, $user ? $user->getId() : null));
 
-        // Set map and fixed values for transformer
-        $transformer->setColumnNames($csv->columns ?: []);
-        $transformer->setMap($csv->maps_to ?: []);
-        $transformer->setFixedValues($csv->fixed ?: []);
-
-        $this->usecase = $this->usecaseFactory
-            ->get($this->getResource(), 'import')
-            ->setPayload($records)
-            ->setCSV($csv)
-            ->setTransformer($transformer);
-
-        return $this->prepResponse($this->executeUsecase($request), $request);
+        return response()->json([
+            'result' => [
+                'import' => 'PENDING',
+                'id' => $csv->id,
+            ],
+        ], 200);
     }
 }
