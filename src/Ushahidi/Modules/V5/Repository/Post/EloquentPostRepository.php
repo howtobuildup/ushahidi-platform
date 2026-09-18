@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Auth;
 use Ushahidi\Modules\V5\Models\RolePermission;
 use Ushahidi\Contracts\Sources;
 use App\Support\PartnerPostVisibility;
+use App\Support\UserFormAccess;
 
 class EloquentPostRepository implements PostRepository
 {
@@ -33,11 +34,15 @@ class EloquentPostRepository implements PostRepository
         if (!$user || !$user->id) {
             $query->where('posts.status', '=', 'published');
         } elseif ($user->id) {
+            // Restricted roles are additionally scoped to their assigned
+            // surveys, on top of whichever narrowing their role already gets.
             if ($user->role === 'field_monitor') {
-                return $query->where('posts.user_id', '=', $user->id);
+                $query->where('posts.user_id', '=', $user->id);
+                return UserFormAccess::applyToPosts($query, $user);
             }
             if ($user->role === 'saferworld_partner') {
-                return PartnerPostVisibility::apply($query, $user);
+                PartnerPostVisibility::apply($query, $user);
+                return UserFormAccess::applyToPosts($query, $user);
             }
 
             if (!$this->userHasManagePostPermissions($user)) {

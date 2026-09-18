@@ -2,6 +2,8 @@
 
 namespace Ushahidi\Modules\V5\Repository\Survey;
 
+use App\Support\UserFormAccess;
+use Illuminate\Support\Facades\Auth;
 use Ushahidi\Modules\V5\Models\Survey;
 use Ushahidi\Modules\V5\Repository\Survey\SurveyRepository as SurveyRepository;
 use Ushahidi\Core\Exception\NotFoundException;
@@ -133,6 +135,10 @@ class EloquentSurveyRepository implements SurveyRepository
         if ($survey_search_fields->q()) {
             $builder->where('name', 'LIKE', "%" . $survey_search_fields->q() . "%");
         }
+
+        // Both listing paths run through here, so restricted roles are scoped
+        // to their assigned surveys in one place rather than two.
+        UserFormAccess::applyToSurveys($builder, Auth::user());
 
         return $builder;
     }

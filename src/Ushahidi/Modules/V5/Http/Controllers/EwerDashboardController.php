@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Ushahidi\Modules\V5\Models\Survey;
 use App\Support\PartnerPostVisibility;
+use App\Support\UserFormAccess;
 
 class EwerDashboardController extends V5Controller
 {
@@ -829,6 +830,10 @@ class EwerDashboardController extends V5Controller
         if ($user->role === 'saferworld_partner') {
             PartnerPostVisibility::apply($query, $user);
         }
+
+        // A restricted account not assigned this survey gets an empty
+        // dashboard rather than one counting posts it cannot open.
+        UserFormAccess::applyToPosts($query, $user);
 
         $this->applyDateFilters($query);
 

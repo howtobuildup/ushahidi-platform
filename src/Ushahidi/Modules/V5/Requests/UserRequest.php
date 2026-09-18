@@ -33,6 +33,8 @@ class UserRequest extends BaseRequest
                 'role'=>['string','exists:roles,name'],
                 'field_monitor_ids'=>['array'],
                 'field_monitor_ids.*'=>['integer','exists:field_monitors,id'],
+                'form_ids'=>['array'],
+                'form_ids.*'=>['integer','exists:forms,id'],
             ];
         } elseif ($request->isMethod('put')) {
             return [
@@ -42,6 +44,8 @@ class UserRequest extends BaseRequest
                 'role'=>['string','exists:roles,name'],
                 'field_monitor_ids'=>['array'],
                 'field_monitor_ids.*'=>['integer','exists:field_monitors,id'],
+                'form_ids'=>['array'],
+                'form_ids.*'=>['integer','exists:forms,id'],
             ];
         } else {
             return [];

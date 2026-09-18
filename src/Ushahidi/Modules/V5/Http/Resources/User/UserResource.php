@@ -7,6 +7,7 @@ use Illuminate\Support\Collection;
 use Ushahidi\Core\Entity\User;
 
 use App\Bus\Query\QueryBus;
+use App\Support\UserFormAccess;
 use Illuminate\Support\Facades\DB;
 
 class UserResource extends Resource
@@ -69,6 +70,11 @@ class UserResource extends Resource
                     })
                     ->values()
                     ->all()
+                : [],
+            // Surveys granted to this account. Empty for roles that are not
+            // scoped, which see every survey rather than none.
+            'form_ids' => UserFormAccess::isRestricted($this->resource)
+                ? UserFormAccess::formIds((int) $this->id)
                 : [],
             'permissions' => $this->getResourcePermissions(),
             'allowed_privileges' => $this->getResourcePrivileges()

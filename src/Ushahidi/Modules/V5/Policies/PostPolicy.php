@@ -3,6 +3,7 @@
 namespace Ushahidi\Modules\V5\Policies;
 
 use App\Support\PartnerPostVisibility;
+use App\Support\UserFormAccess;
 
 use Ushahidi\Modules\V5\Models\Post\Post;
 use Ushahidi\Authzn\GenericUser as User;
@@ -162,6 +163,18 @@ class PostPolicy
         // allowed access to everything (all entities and all privileges)
         if ($this->isUserAdmin($user)) {
             return true;
+        }
+
+        // Restricted roles reach only the surveys assigned to them, whatever
+        // else would otherwise allow the privilege. Checked here rather than
+        // per role so a role added later cannot miss it. A search carries no
+        // entity and is a pre-flight, so it is left alone; the repository
+        // scopes the results it returns.
+        if ($privilege !== 'search'
+            && $entity->form_id
+            && !UserFormAccess::canUseForm($user, $entity->form_id)
+        ) {
+            return false;
         }
 
         if ($user && $user->role === 'saferworld_partner') {

@@ -12,6 +12,7 @@
 namespace Ushahidi\Core\Tool\Authorizer;
 
 use App\Support\PartnerPostVisibility;
+use App\Support\UserFormAccess;
 
 use Ushahidi\Contracts\Entity;
 use Ushahidi\Contracts\Authorizer;
@@ -94,6 +95,16 @@ class PostAuthorizer implements Authorizer
         // allowed access to everything (all entities and all privileges)
         if ($this->isUserAdmin($user)) {
             return true;
+        }
+
+        // Restricted roles reach only the surveys assigned to them. A search
+        // carries no entity and is a pre-flight, so it is left alone; the
+        // repository scopes the results it returns.
+        if ($privilege !== 'search'
+            && $entity->form_id
+            && !UserFormAccess::canUseForm($user, $entity->form_id)
+        ) {
+            return false;
         }
 
         if ($this->isSaferworldPartner($user)) {

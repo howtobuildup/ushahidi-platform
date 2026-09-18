@@ -16,6 +16,7 @@ use Ushahidi\Core\Entity\User as UserEntity;
 use Ushahidi\Modules\V5\DTO\UserSearchFields;
 use Ushahidi\Modules\V5\Requests\UserRequest;
 use Illuminate\Support\Facades\Log;
+use App\Support\UserFormAccess;
 use Illuminate\Support\Facades\DB;
 use Ushahidi\Core\Exception\NotFoundException;
 
@@ -110,6 +111,7 @@ class UserController extends V5Controller
         $command = new CreateUserCommand(UserEntity::buildEntity($request->input()));
         $this->commandBus->handle($command);
         $this->syncFieldMonitors($command->getId(), $request);
+        $this->syncUserForms($command->getId(), $request);
         return new UserResource(
             $this->queryBus->handle(new FetchUserByIdQuery($command->getId()))
         );
@@ -133,6 +135,7 @@ class UserController extends V5Controller
             new UpdateUserCommand($id, $userEntity)
         );
         $this->syncFieldMonitors($id, $request);
+        $this->syncUserForms($id, $request);
         return new UserResource(
             $this->queryBus->handle(new FetchUserByIdQuery($id))
         );
@@ -173,6 +176,41 @@ class UserController extends V5Controller
         $this->commandBus->handle(new DeleteUserCommand($id));
         return $this->deleteResponse($id);
     } //end store()
+
+    /**
+     * Replace this user's survey grants with what the request carries.
+     *
+     * Rows are cleared first whatever the role, so demoting an account to one
+     * that is not scoped, or promoting it out of a scoped role, does not leave
+     * grants behind to take effect again if it is moved back.
+     */
+    private function syncUserForms(int $userId, UserRequest $request): void
+    {
+        DB::transaction(function () use ($userId, $request) {
+            DB::table('user_forms')->where('user_id', $userId)->delete();
+
+            if (!in_array($request->input('role'), UserFormAccess::RESTRICTED_ROLES, true)) {
+                return;
+            }
+
+            $formIds = array_values(array_unique(array_map(
+                'intval',
+                $request->input('form_ids', [])
+            )));
+            $now = time();
+            $rows = array_map(function ($formId) use ($userId, $now) {
+                return [
+                    'user_id' => $userId,
+                    'form_id' => $formId,
+                    'created' => $now,
+                ];
+            }, $formIds);
+
+            if (!empty($rows)) {
+                DB::table('user_forms')->insert($rows);
+            }
+        });
+    }
 
     private function syncFieldMonitors(int $userId, UserRequest $request): void
     {
