@@ -493,6 +493,10 @@ class EwerDashboardController extends V5Controller
 
         foreach ($counts as $key => $frequency) {
             $result[] = [
+                // The canonical key travels with the label so the client can
+                // translate the actor. Deriving it from the label there would
+                // mean normalising the same strings twice, in two languages.
+                'key' => $key,
                 'name' => $actorNames[$key],
                 'frequency' => $frequency,
                 'percentage' => $this->percentage($frequency, $totalYes),
