@@ -42,6 +42,8 @@ class CSV extends API
     protected $heading;
     protected $hxl_heading;
     protected $add_header = true;
+    // The last multiple choice answer read, see resolveChoices()
+    private $resolvedChoices;
     // Formatter
     public function setHxlHeading($rows)
     {
@@ -313,6 +315,19 @@ class CSV extends API
          **/
         $recordValue = isset($record['values']) && isset($record['values'][$headingKey]) ? $record['values'] : $record;
 
+        // A column for one option of a multiple choice field: 1 when it was chosen, 0 when
+        // another was, and blank when the question was not answered at all
+        if ($key === 'option' && isset($keySet[2])) {
+            $answer = $this->resolveChoices(
+                isset($recordValue[$headingKey]) ? $recordValue[$headingKey] : [],
+                isset($recordAttributes['options']) ? $recordAttributes['options'] : []
+            );
+            if (!$answer['selected'] && !$answer['unmatched']) {
+                return '';
+            }
+            return isset($answer['selected'][(int) $keySet[2]]) ? 1 : 0;
+        }
+
         // handle values that are dates to have consistent formatting
         $isDateField = $recordAttributes['input'] === 'date' && $recordAttributes['type'] === 'datetime';
         if ($isDateField && isset($recordValue[$headingKey])) {
@@ -482,7 +497,20 @@ class CSV extends API
              * Finally, we can flatten the array, and set the fields (key->labels) with the user-selected order.
              */
             foreach ($attributeKeys as $attributeKey => $attribute) {
-                if (is_array($attribute) && $attribute['type'] !== 'point') {
+                $options = is_array($attribute) && $this->isMultipleChoice($attribute)
+                    ? $this->choiceOptions(isset($attribute['options']) ? $attribute['options'] : [])
+                    : [];
+                if ($options) {
+                    /**
+                     * key=>label mapping with one column per option for multiple choice fields,
+                     * laid out as KoboToolbox does ("Question/Option"), so each answer can be
+                     * counted on its own in a spreadsheet
+                     */
+                    foreach ($options as $index => $option) {
+                        $attributeKeysWithStageFlat[$attributeKey . '.option.' . $index] =
+                            $attribute['label'] . '/' . $option['label'];
+                    }
+                } elseif (is_array($attribute) && $attribute['type'] !== 'point') {
                     /**
                      * key=>label mapping with index[0] for regular fields
                      */
@@ -536,8 +564,9 @@ class CSV extends API
     /**
      * Replace XLSForm choice names with their display labels for export.
      *
-     * Legacy surveys store options as strings rather than name/label objects. Those
-     * values, and any response whose option can no longer be found, are left unchanged.
+     * Legacy surveys store options as strings rather than name/label objects, so those
+     * values come back as they are. A response whose option can no longer be found is
+     * kept, with the underscores of a choice name turned into spaces.
      *
      * @param mixed $value
      * @param mixed $options
@@ -545,34 +574,275 @@ class CSV extends API
      */
     private function replaceChoiceNamesWithLabels($value, $options)
     {
+        $lookup = $this->choiceLookup($options);
+        if (!$lookup['options']) {
+            return $value;
+        }
+
+        $replace = function ($choice) use ($lookup) {
+            if (!is_scalar($choice)) {
+                return $choice;
+            }
+            $index = $this->matchChoice((string) $choice, $lookup);
+            return $index === null
+                ? $this->humanizeChoice($choice)
+                : $lookup['options'][$index]['label'];
+        };
+
+        return is_array($value) ? array_map($replace, $value) : $replace($value);
+    }
+
+    /**
+     * @param array $attribute
+     * @return bool
+     */
+    private function isMultipleChoice($attribute)
+    {
+        return isset($attribute['input'], $attribute['type'])
+            && $attribute['input'] === 'checkbox' && $attribute['type'] === 'varchar';
+    }
+
+    /**
+     * The options of a choice field as name/label pairs, keyed by their position.
+     *
+     * @param mixed $options
+     * @return array
+     */
+    private function choiceOptions($options)
+    {
         if (is_string($options)) {
             $decodedOptions = json_decode($options, true);
             $options = is_array($decodedOptions) ? $decodedOptions : [];
         }
 
         if (!is_array($options)) {
-            return $value;
+            return [];
         }
 
-        $labels = [];
-        foreach ($options as $option) {
-            if (!is_array($option)) {
+        $choices = [];
+        foreach (array_values($options) as $index => $option) {
+            if (is_array($option)) {
+                $name = $option['name'] ?? $option['value'] ?? $option['id'] ?? null;
+                $label = $option['label'] ?? $option['tag'] ?? $name;
+            } elseif (is_scalar($option)) {
+                $name = $label = $option;
+            } else {
                 continue;
             }
 
-            $name = $option['name'] ?? $option['value'] ?? $option['id'] ?? null;
-            $label = $option['label'] ?? $option['tag'] ?? null;
             if ($name !== null && $label !== null) {
-                $labels[(string) $name] = $label;
+                $choices[$index] = ['name' => (string) $name, 'label' => (string) $label];
+            }
+        }
+        return $choices;
+    }
+
+    /**
+     * Index a field's options by every form an answer has been recorded in.
+     *
+     * The same survey holds an option as its name, as its label, and with the
+     * incident branch appended to the name, so all of those are keys here. The
+     * branch-free keys go in last so they never shadow an exact one.
+     *
+     * @param mixed $options
+     * @return array
+     */
+    private function choiceLookup($options)
+    {
+        $lookup = [
+            'options' => $this->choiceOptions($options),
+            'exact' => [],
+            'keys' => [],
+            'labels' => [],
+            'maxWords' => 1,
+        ];
+
+        foreach ($lookup['options'] as $index => $option) {
+            if (!isset($lookup['exact'][$option['name']])) {
+                $lookup['exact'][$option['name']] = $index;
+            }
+            $label = $this->normalizeChoice($option['label']);
+            if ($label !== '' && !isset($lookup['labels'][$label])) {
+                $lookup['labels'][$label] = $index;
+            }
+            foreach ([$option['name'], $option['label']] as $text) {
+                $key = $this->normalizeChoice($text);
+                if ($key !== '' && !isset($lookup['keys'][$key])) {
+                    $lookup['keys'][$key] = $index;
+                }
+                $lookup['maxWords'] = max($lookup['maxWords'], preg_match_all('/[^\s,]+/u', $text));
             }
         }
 
-        $replace = function ($choice) use ($labels) {
-            $key = (string) $choice;
-            return array_key_exists($key, $labels) ? $labels[$key] : $choice;
-        };
+        foreach ($lookup['options'] as $index => $option) {
+            foreach ([$option['name'], $option['label']] as $text) {
+                $key = $this->stripBranch($this->normalizeChoice($text));
+                if ($key !== '' && !isset($lookup['keys'][$key])) {
+                    $lookup['keys'][$key] = $index;
+                }
+            }
+        }
 
-        return is_array($value) ? array_map($replace, $value) : $replace($value);
+        return $lookup;
+    }
+
+    /**
+     * Find the option a piece of answer text refers to.
+     *
+     * @param string $text
+     * @param array $lookup from choiceLookup()
+     * @return int|null the option's position, or null when none matches
+     */
+    private function matchChoice($text, $lookup)
+    {
+        if (isset($lookup['exact'][$text])) {
+            return $lookup['exact'][$text];
+        }
+
+        $key = $this->normalizeChoice($text);
+        if ($key === '') {
+            return null;
+        }
+        if (isset($lookup['keys'][$key])) {
+            return $lookup['keys'][$key];
+        }
+
+        $key = $this->stripBranch($key);
+        return isset($lookup['keys'][$key]) ? $lookup['keys'][$key] : null;
+    }
+
+    /**
+     * Work out which options a multiple choice answer selected.
+     *
+     * The apps store the answer as a JSON list of option names. The Kobo import
+     * stored it as one string of names, or of labels, joined by spaces, and a
+     * label has spaces of its own. So text that is not an option as a whole is
+     * read word by word, taking the longest run of words that names an option
+     * at each point. Text that names none is returned as unmatched.
+     *
+     * @param mixed $values the stored values of the field
+     * @param mixed $options
+     * @return array ['selected' => [option position => true], 'unmatched' => [text]]
+     */
+    private function resolveChoices($values, $options)
+    {
+        // Every option column of a field asks about the same answer in turn
+        $cacheKey = [$values, $options];
+        if ($this->resolvedChoices !== null && $this->resolvedChoices['key'] === $cacheKey) {
+            return $this->resolvedChoices['answer'];
+        }
+
+        $lookup = $this->choiceLookup($options);
+        $answer = ['selected' => [], 'unmatched' => []];
+
+        foreach ((array) $values as $value) {
+            if (is_string($value) && $value !== '' && $value[0] === '[') {
+                $decodedValue = json_decode($value, true);
+                $value = is_array($decodedValue) ? $decodedValue : $value;
+            }
+            foreach ((array) $value as $text) {
+                if (is_scalar($text)) {
+                    $this->readChoiceText(trim((string) $text), $lookup, $answer);
+                }
+            }
+        }
+
+        $this->resolvedChoices = ['key' => $cacheKey, 'answer' => $answer];
+        return $answer;
+    }
+
+    /**
+     * @param string $text
+     * @param array $lookup from choiceLookup()
+     * @param array $answer collects the result, see resolveChoices()
+     */
+    private function readChoiceText($text, $lookup, &$answer)
+    {
+        if ($text === '') {
+            return;
+        }
+
+        $index = $this->matchChoice($text, $lookup);
+        if ($index !== null) {
+            $answer['selected'][$index] = true;
+            return;
+        }
+
+        preg_match_all('/[^\s,]+/u', $text, $words, PREG_OFFSET_CAPTURE);
+        $words = $words[0];
+        $count = count($words);
+        $unmatchedFrom = null;
+
+        for ($i = 0; $i < $count;) {
+            $index = null;
+            for ($j = min($count, $i + $lookup['maxWords']); $j > $i; $j--) {
+                // A choice name is a single word. Several words are a label, and must
+                // match one whole: read loosely, "Local Radio Social" would pass for
+                // local_radio recorded in the social branch.
+                $run = $this->wordRun($text, $words, $i, $j);
+                if ($j - $i === 1) {
+                    $index = $this->matchChoice($run, $lookup);
+                } else {
+                    $key = $this->normalizeChoice($run);
+                    $index = isset($lookup['labels'][$key]) ? $lookup['labels'][$key] : null;
+                }
+                if ($index !== null) {
+                    break;
+                }
+            }
+
+            if ($index === null) {
+                $unmatchedFrom = $unmatchedFrom === null ? $i : $unmatchedFrom;
+                $i++;
+                continue;
+            }
+
+            if ($unmatchedFrom !== null) {
+                $answer['unmatched'][] = $this->wordRun($text, $words, $unmatchedFrom, $i);
+                $unmatchedFrom = null;
+            }
+            $answer['selected'][$index] = true;
+            $i = $j;
+        }
+
+        if ($unmatchedFrom !== null) {
+            $answer['unmatched'][] = $this->wordRun($text, $words, $unmatchedFrom, $count);
+        }
+    }
+
+    /**
+     * The text from word $from up to, not including, word $to, as it was written.
+     */
+    private function wordRun($text, $words, $from, $to)
+    {
+        $start = $words[$from][1];
+        $end = $words[$to - 1][1] + strlen($words[$to - 1][0]);
+        return substr($text, $start, $end - $start);
+    }
+
+    /**
+     * Reduce a choice name or label to a comparable form, as the web client does.
+     */
+    private function normalizeChoice($value)
+    {
+        return trim(preg_replace('/[^a-z0-9]+/', '_', mb_strtolower((string) $value)), '_');
+    }
+
+    /**
+     * The survey repeats some options in several incident branches, with the
+     * branch appended to the option's name.
+     */
+    private function stripBranch($key)
+    {
+        return preg_replace('/_(climate|conflict|gbv|social|warning|violence)$/', '', $key);
+    }
+
+    /**
+     * Show an answer that matches no option without a choice name's underscores.
+     */
+    private function humanizeChoice($value)
+    {
+        return trim(preg_replace('/\s+/', ' ', str_replace('_', ' ', (string) $value)));
     }
 
     /**

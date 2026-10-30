@@ -396,12 +396,116 @@ class CSVTest extends TestCase
         $this->assertSame(['Environmental and Climate Early Warning'], $values);
     }
 
-    public function testMultipleXlsFormChoicesAreExportedAsDisplayLabels()
+    public function testMultipleChoiceFieldsGetAColumnPerOption()
+    {
+        $attributes = $this->sourcesAttribute();
+
+        $heading = $this->formatter->createHeading(array_values($attributes));
+
+        $this->assertSame([
+            'Sources/First account from Field Monitor',
+            'Sources/Local Radio',
+            'Sources/Social Media',
+            'Sources/Breakdown of law and order, leading to chaos.',
+        ], array_values($heading));
+    }
+
+    public function testAppAnswersMarkTheChosenOptions()
+    {
+        $attributes = $this->sourcesAttribute();
+        $this->formatter->createHeading(array_values($attributes));
+
+        $values = $this->formatter->formatRecordForCSV([
+            'form_id' => 1,
+            'values' => [
+                'sources' => [json_encode(['first_account_from_field_monit', 'social_media'])],
+            ],
+        ], $attributes);
+
+        $this->assertSame([1, 0, 1, 0], $values);
+    }
+
+    public function testImportedChoiceNamesJoinedBySpacesAreSplit()
+    {
+        $attributes = $this->sourcesAttribute();
+        $this->formatter->createHeading(array_values($attributes));
+
+        $values = $this->formatter->formatRecordForCSV([
+            'form_id' => 1,
+            'values' => [
+                'sources' => ['first_account_from_field_monit_climate local_radio'],
+            ],
+        ], $attributes);
+
+        $this->assertSame([1, 1, 0, 0], $values);
+    }
+
+    public function testImportedLabelsJoinedBySpacesAreSplit()
+    {
+        $attributes = $this->sourcesAttribute();
+        $this->formatter->createHeading(array_values($attributes));
+
+        // "Local Radio Social" must not be read as local_radio in the social branch
+        $values = $this->formatter->formatRecordForCSV([
+            'form_id' => 1,
+            'values' => [
+                'sources' => ['Local Radio Social Media Breakdown of law and order, leading to chaos.'],
+            ],
+        ], $attributes);
+
+        $this->assertSame([0, 1, 1, 1], $values);
+    }
+
+    public function testUnansweredMultipleChoiceLeavesItsColumnsBlank()
+    {
+        $attributes = $this->sourcesAttribute();
+        $this->formatter->createHeading(array_values($attributes));
+
+        $values = $this->formatter->formatRecordForCSV([
+            'form_id' => 1,
+            'values' => [],
+        ], $attributes);
+
+        $this->assertSame(['', '', '', ''], $values);
+    }
+
+    public function testLooselyRecordedChoicesAreExportedAsDisplayLabels()
     {
         $attributes = [
-            'incident_causes' => [
-                'key' => 'incident_causes',
-                'label' => 'Incident causes',
+            'incidence_type' => [
+                'key' => 'incidence_type',
+                'label' => 'Incidence type',
+                'input' => 'select',
+                'type' => 'varchar',
+                'form_id' => 1,
+                'form_stage_id' => 1,
+                'form_stage_priority' => 1,
+                'priority' => 1,
+                'options' => json_encode([
+                    ['name' => 'social_violence', 'label' => 'Social Violence'],
+                ]),
+            ],
+        ];
+        $this->formatter->createHeading(array_values($attributes));
+
+        $export = function ($value) use ($attributes) {
+            return $this->formatter->formatRecordForCSV([
+                'form_id' => 1,
+                'values' => ['incidence_type' => [$value]],
+            ], $attributes);
+        };
+
+        $this->assertSame(['Social Violence'], $export('social_violence_climate'));
+        $this->assertSame(['Social Violence'], $export('social violence'));
+        $this->assertSame(['Plant Insects'], $export('Plant_Insects'));
+    }
+
+    private function sourcesAttribute()
+    {
+        return [
+            'sources' => [
+                'key' => 'sources',
+                'label' => 'Sources',
                 'input' => 'checkbox',
                 'type' => 'varchar',
                 'form_id' => 1,
@@ -409,22 +513,16 @@ class CSVTest extends TestCase
                 'form_stage_priority' => 1,
                 'priority' => 1,
                 'options' => json_encode([
-                    ['name' => 'climate_shock', 'label' => 'Climate Shock'],
-                    ['name' => 'social_violence', 'label' => 'Social Violence'],
+                    ['name' => 'first_account_from_field_monit', 'label' => 'First account from Field Monitor'],
+                    ['name' => 'local_radio', 'label' => 'Local Radio'],
+                    ['name' => 'social_media', 'label' => 'Social Media'],
+                    [
+                        'name' => 'breakdown_of_law_and_order__leading_to_c',
+                        'label' => 'Breakdown of law and order, leading to chaos.',
+                    ],
                 ]),
             ],
         ];
-
-        $this->formatter->createHeading(array_values($attributes));
-
-        $values = $this->formatter->formatRecordForCSV([
-            'form_id' => 1,
-            'values' => [
-                'incident_causes' => [json_encode(['climate_shock', 'social_violence'])],
-            ],
-        ], $attributes);
-
-        $this->assertSame(['Climate Shock, Social Violence'], $values);
     }
 
     public function testLegacyAndUnknownChoiceValuesRemainUnchanged()
