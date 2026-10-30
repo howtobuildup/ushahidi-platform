@@ -100,4 +100,23 @@ class ExportJob extends StaticEntity
             [self::STATUS_SUCCESS, self::STATUS_EXPORTED_TO_CDN, self::STATUS_PENDING_HDX]
         );
     }
+
+    /**
+     * The post filters this export runs with.
+     *
+     * A job that names no status fell through to the post search default,
+     * which is published only, so responses still under review or archived
+     * were left out of the file without a word. An export is a copy of the
+     * survey's data, so it covers every status unless the job asks for fewer.
+     *
+     * @return array
+     */
+    public function getPostFilters()
+    {
+        $filters = is_array($this->filters) ? $this->filters : [];
+        if (empty($filters['status'])) {
+            $filters['status'] = ['all'];
+        }
+        return $filters;
+    }
 }

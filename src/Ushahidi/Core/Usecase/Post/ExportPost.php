@@ -251,16 +251,15 @@ class ExportPost implements Usecase
     public function constructFilters($filters, $job_filters = null)
     {
 
-        // Set the baseline filter parameters
-        $filters = [
-            'limit' => $filters['limit'],
-            'offset' => $filters['offset'],
-        ];
-        // Merge the export job filters with the base filters
-        if ($job_filters) {
-            $filters = array_merge($filters, $job_filters);
-        }
-        return $filters;
+        // Merge the export job filters with the base filters. Batches page through
+        // the posts in id order unless the job sets another, so no post falls
+        // between two pages. The batch's own page goes last: a limit or offset
+        // saved with the job would otherwise give every batch the same page.
+        return array_merge(
+            ['orderby' => 'id', 'order' => 'ASC'],
+            $job_filters ?: [],
+            ['limit' => $filters['limit'], 'offset' => $filters['offset']]
+        );
     }
 
     /**
@@ -272,7 +271,7 @@ class ExportPost implements Usecase
     public function constructSearchData($job)
     {
         $form_ids_by_attributes = $this->formAttributeRepository->getFormsByAttributes($job->fields);
-        $filters = $this->constructFilters($this->filters, $job->filters);
+        $filters = $this->constructFilters($this->filters, $job->getPostFilters());
 
         if (!empty($form_ids_by_attributes)) {
             $filters['form'] = array_unique(

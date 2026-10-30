@@ -173,9 +173,7 @@ class ExportJobRepository extends OhanzeeRepository implements ExportJobReposito
     {
         $job = $this->get($job_id);
 
-        if ($job->filters) {
-            $this->setFilters($job->filters);
-        }
+        $this->setFilters($job->getPostFilters());
 
         $fields = $this->post_repo->getSearchFields();
 

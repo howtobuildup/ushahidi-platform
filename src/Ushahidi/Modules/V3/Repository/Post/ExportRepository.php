@@ -100,6 +100,19 @@ class ExportRepository extends PostRepository implements PostExportRepository
         return $data;
     }
 
+    /**
+     * Do not join location values onto the search query.
+     *
+     * The join gives a post one row per location it holds, and a batch's LIMIT
+     * counts those rows, not posts. The EWER survey holds seven locations per
+     * post, so a batch of 200 rows carried 29 posts while the job, counting
+     * posts, had queued a single batch for all of them. Every value, locations
+     * included, is read for each post in getPostValues() anyway.
+     */
+    protected function addSearchResultValues()
+    {
+    }
+
     public function retrieveCompletedStageNames($stage_ids)
     {
         $names = [];
